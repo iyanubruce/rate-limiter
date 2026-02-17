@@ -1,0 +1,15 @@
+version: "3.8"
+services:
+  postgres:
+    image: postgres:16
+    container_name: postgres_container
+    environment:
+      POSTGRES_PASSWORD: mySecretPassword
+      POSTGRES_USER: iyanuoluwa
+      POSTGRES_DB: ratelimitr
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+volumes:
+  pgdata:

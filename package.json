@@ -4,7 +4,7 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "start": "bun run index.ts",
+    "start": "bun run ./src/index.ts",
     "prepare": "husky"
   },
   "devDependencies": {
@@ -15,5 +15,19 @@
   },
   "peerDependencies": {
     "typescript": "^5"
+  },
+  "dependencies": {
+    "@fastify/compress": "^8.3.1",
+    "@fastify/cors": "^11.2.0",
+    "@fastify/helmet": "^13.0.2",
+    "@fastify/rate-limit": "^10.3.0",
+    "@fastify/swagger": "^9.7.0",
+    "@fastify/swagger-ui": "^5.2.5",
+    "@types/pg": "^8.16.0",
+    "fastify": "^5.7.4",
+    "ioredis": "^5.9.3",
+    "pg": "^8.18.0",
+    "redis": "^5.10.0",
+    "winston": "^3.19.0"
   }
 }

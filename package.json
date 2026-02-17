@@ -4,7 +4,10 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "start": "bun run ./src/index.ts",
+    "embed:lua": "bun run src/scripts/embed-lua.ts",
+    "start": "bun run src/index.ts",
+    "dev": "bun run --watch src/index.ts",
+    "clean": "rm -rf dist src/utils/embedded-scripts.ts",
     "prepare": "husky"
   },
   "devDependencies": {

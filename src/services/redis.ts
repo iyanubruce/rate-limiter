@@ -1,8 +1,15 @@
-import logger from "../utils/logger";
 import Redis, {
   type Redis as RedisClientType,
   type RedisOptions,
 } from "ioredis";
+import logger from "../utils/logger";
+import { loadAllLuaScripts } from "../utils/load-lua-scripts";
+
+// Hybrid loading: embedded (prod) or runtime (dev)
+let LUA_SCRIPTS: Record<string, string>;
+let USING_EMBEDDED = false;
+
+LUA_SCRIPTS = await loadAllLuaScripts();
 
 export interface RedisConfig {
   host: string;
@@ -18,6 +25,7 @@ export class RedisClient {
   private config: RedisConfig;
   private isConnected: boolean = false;
   private reconnectAttempts: number = 0;
+  private scriptShas: Record<string, string> = {};
 
   constructor(config: RedisConfig) {
     this.config = {
@@ -34,16 +42,11 @@ export class RedisClient {
       retryStrategy: (retries) => {
         if (retries >= (this.config.maxRetries || 3)) {
           logger.error("Redis max reconnection attempts reached");
-          return null; // Stop retrying
+          return null;
         }
-
         const delay = Math.min(retries * 100, this.config.retryDelay || 1000);
         logger.warn(`Redis reconnecting in ${delay}ms (attempt ${retries})`);
         return delay;
-      },
-      reconnectOnError: (err) => {
-        logger.error("Redis connection error:", err.message);
-        return true; // Attempt reconnect
       },
       maxRetriesPerRequest: 3,
       lazyConnect: false,
@@ -51,7 +54,6 @@ export class RedisClient {
 
     this.client = new Redis(options);
     this.setupEventHandlers();
-    this.defineCommands();
   }
 
   private setupEventHandlers() {
@@ -59,10 +61,11 @@ export class RedisClient {
       logger.info("Redis client connecting...");
     });
 
-    this.client.on("ready", () => {
+    this.client.on("ready", async () => {
       this.isConnected = true;
       this.reconnectAttempts = 0;
       logger.info("Redis client ready");
+      await this.loadScriptShas();
     });
 
     this.client.on("error", (error) => {
@@ -87,38 +90,66 @@ export class RedisClient {
     });
   }
 
-  private defineCommands() {
-    // Define the rateLimit Lua script as a custom command
-    (this.client as any).defineCommand("rateLimit", {
-      numberOfKeys: 1,
-      lua: `
-        local key = KEYS[1]
-        local timeWindow = tonumber(ARGV[1])
-        local max = tonumber(ARGV[2])
-        local continueExceeding = ARGV[3] == 'true'
-        local exponentialBackoff = ARGV[4] == 'true'
-        local MAX_SAFE_INTEGER = (2^53) - 1
+  private async loadScriptShas() {
+    for (const [name, script] of Object.entries(LUA_SCRIPTS)) {
+      try {
+        const sha = (await this.client.script("LOAD", script)) as string;
+        this.scriptShas[name] = sha;
+        logger.debug(`Loaded script SHA for ${name}: ${sha}`);
+      } catch (error) {
+        logger.error(`Failed to load script SHA for ${name}:`, error);
+      }
+    }
+  }
 
-        local current = redis.call('INCR', key)
+  private async evalWithFallback(
+    scriptName: string,
+    keys: string[],
+    args: string[],
+  ): Promise<any> {
+    const sha = this.scriptShas[scriptName];
 
-        if current == 1 or (continueExceeding and current > max) then
-          redis.call('PEXPIRE', key, timeWindow)
-        elseif exponentialBackoff and current > max then
-          local backoffExponent = current - max - 1
-          timeWindow = math.min(timeWindow * (2 ^ backoffExponent), MAX_SAFE_INTEGER)
-          redis.call('PEXPIRE', key, timeWindow)
-        else
-          timeWindow = redis.call('PTTL', key)
-        end
+    if (sha) {
+      try {
+        return await this.client.evalsha(sha, keys.length, ...keys, ...args);
+      } catch (error: any) {
+        if (error.message?.includes("NOSCRIPT")) {
+          logger.warn(`Script ${scriptName} not cached, using eval fallback`);
 
-        return {current, timeWindow}
-      `,
-    });
+          // Fix: use .call() or assertion to bypass bad overload
+          const newSha = (await this.client.call(
+            "SCRIPT",
+            "LOAD",
+            LUA_SCRIPTS[scriptName]!,
+          )) as string;
+
+          // Alternative with assertion on .script():
+          // const newSha = await (this.client.script as any)("LOAD", LUA_SCRIPTS[scriptName]!) as string;
+
+          this.scriptShas[scriptName] = newSha;
+
+          return await this.client.evalsha(
+            newSha,
+            keys.length,
+            ...keys,
+            ...args,
+          );
+        }
+        throw error;
+      }
+    }
+
+    // No SHA → direct eval
+    const script = LUA_SCRIPTS[scriptName];
+    if (!script) {
+      throw new Error(`Lua script missing for ${scriptName}`);
+    }
+
+    return await this.client.eval(script, keys.length, ...keys, ...args);
   }
 
   async connect(): Promise<void> {
     try {
-      // ioredis connects automatically, but we can wait for ready state
       await new Promise<void>((resolve, reject) => {
         if (this.isConnected) {
           resolve();
@@ -154,10 +185,7 @@ export class RedisClient {
       logger.info("✓ Redis disconnected successfully");
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
-      logger.error({
-        event: "redis_disconnect_error",
-        error: errorMsg,
-      });
+      logger.error({ event: "redis_disconnect_error", error: errorMsg });
       throw error;
     }
   }
@@ -170,7 +198,6 @@ export class RedisClient {
     return this.isConnected && this.client.status === "ready";
   }
 
-  // Rate limiting operations using Lua scripts
   async checkRateLimit(
     key: string,
     limit: number,
@@ -179,11 +206,7 @@ export class RedisClient {
       | "token_bucket"
       | "sliding_window"
       | "leaky_bucket" = "token_bucket",
-  ): Promise<{
-    allowed: boolean;
-    remaining: number;
-    resetAt: number;
-  }> {
+  ): Promise<{ allowed: boolean; remaining: number; resetAt: number }> {
     switch (strategy) {
       case "token_bucket":
         return this.tokenBucket(key, limit, windowSeconds);
@@ -196,58 +219,16 @@ export class RedisClient {
     }
   }
 
-  // Token Bucket algorithm using Lua script
   private async tokenBucket(
     key: string,
     limit: number,
     windowSeconds: number,
-  ): Promise<{
-    allowed: boolean;
-    remaining: number;
-    resetAt: number;
-  }> {
+  ): Promise<{ allowed: boolean; remaining: number; resetAt: number }> {
     const now = Date.now();
-    const resetAt = now + windowSeconds * 1000;
-
-    const script = `
-      local key = KEYS[1]
-      local limit = tonumber(ARGV[1])
-      local window = tonumber(ARGV[2])
-      local now = tonumber(ARGV[3])
-      
-      local bucket = redis.call('HMGET', key, 'tokens', 'last_refill')
-      local tokens = tonumber(bucket[1])
-      local last_refill = tonumber(bucket[2])
-      
-      if tokens == nil then
-        tokens = limit
-        last_refill = now
-      else
-        local time_passed = now - last_refill
-        local tokens_to_add = math.floor(time_passed / 1000) * (limit / window)
-        tokens = math.min(limit, tokens + tokens_to_add)
-        last_refill = now
-      end
-      
-      local allowed = 0
-      if tokens >= 1 then
-        tokens = tokens - 1
-        allowed = 1
-      end
-      
-      redis.call('HMSET', key, 'tokens', tokens, 'last_refill', last_refill)
-      redis.call('EXPIRE', key, window * 2)
-      
-      return {allowed, math.floor(tokens), last_refill + (window * 1000)}
-    `;
-
-    const result = (await this.client.eval(
-      script,
-      1,
-      key,
-      limit.toString(),
-      windowSeconds.toString(),
-      now.toString(),
+    const result = (await this.evalWithFallback(
+      "tokenBucket",
+      [key],
+      [limit.toString(), windowSeconds.toString(), now.toString()],
     )) as [number, number, number];
 
     return {
@@ -257,53 +238,24 @@ export class RedisClient {
     };
   }
 
-  // Sliding Window algorithm using Lua script
   private async slidingWindow(
     key: string,
     limit: number,
     windowSeconds: number,
-  ): Promise<{
-    allowed: boolean;
-    remaining: number;
-    resetAt: number;
-  }> {
+  ): Promise<{ allowed: boolean; remaining: number; resetAt: number }> {
     const now = Date.now();
     const windowMs = windowSeconds * 1000;
     const windowStart = now - windowMs;
 
-    const script = `
-      local key = KEYS[1]
-      local limit = tonumber(ARGV[1])
-      local window_start = tonumber(ARGV[2])
-      local now = tonumber(ARGV[3])
-      local window_ms = tonumber(ARGV[4])
-      
-      redis.call('ZREMRANGEBYSCORE', key, 0, window_start)
-      local current = redis.call('ZCARD', key)
-      
-      local allowed = 0
-      if current < limit then
-        redis.call('ZADD', key, now, now)
-        allowed = 1
-        current = current + 1
-      end
-      
-      redis.call('EXPIRE', key, math.ceil(window_ms / 1000))
-      
-      local remaining = math.max(0, limit - current)
-      local reset_at = now + window_ms
-      
-      return {allowed, remaining, reset_at}
-    `;
-
-    const result = (await this.client.eval(
-      script,
-      1,
-      key,
-      limit.toString(),
-      windowStart.toString(),
-      now.toString(),
-      windowMs.toString(),
+    const result = (await this.evalWithFallback(
+      "slidingWindow",
+      [key],
+      [
+        limit.toString(),
+        windowStart.toString(),
+        now.toString(),
+        windowMs.toString(),
+      ],
     )) as [number, number, number];
 
     return {
@@ -313,60 +265,21 @@ export class RedisClient {
     };
   }
 
-  // Leaky Bucket algorithm using Lua script
   private async leakyBucket(
     key: string,
     limit: number,
     windowSeconds: number,
-  ): Promise<{
-    allowed: boolean;
-    remaining: number;
-    resetAt: number;
-  }> {
+  ): Promise<{ allowed: boolean; remaining: number; resetAt: number }> {
     const now = Date.now();
     const leakRate = limit / windowSeconds;
 
-    const script = `
-      local key = KEYS[1]
-      local capacity = tonumber(ARGV[1])
-      local leak_rate = tonumber(ARGV[2])
-      local now = tonumber(ARGV[3])
-      
-      local bucket = redis.call('HMGET', key, 'water', 'last_leak')
-      local water = tonumber(bucket[1]) or 0
-      local last_leak = tonumber(bucket[2]) or now
-      
-      local time_passed = (now - last_leak) / 1000
-      local leaked = time_passed * leak_rate
-      water = math.max(0, water - leaked)
-      
-      local allowed = 0
-      if water < capacity then
-        water = water + 1
-        allowed = 1
-      end
-      
-      redis.call('HMSET', key, 'water', water, 'last_leak', now)
-      redis.call('EXPIRE', key, capacity / leak_rate)
-      
-      local remaining = math.floor(capacity - water)
-      local reset_at = now + ((water / leak_rate) * 1000)
-      
-      return {allowed, remaining, reset_at}
-    `;
-
-    const result = (await this.client.eval(
-      script,
-      1,
-      key,
-      limit.toString(),
-      leakRate.toString(),
-      now.toString(),
+    const result = (await this.evalWithFallback(
+      "leakyBucket",
+      [key],
+      [limit.toString(), leakRate.toString(), now.toString()],
     )) as [number, number, number];
 
-    if (!result) {
-      throw new Error("No result");
-    }
+    if (!result) throw new Error("No result");
 
     return {
       allowed: result[0] === 1,
@@ -375,7 +288,6 @@ export class RedisClient {
     };
   }
 
-  // Use the defined custom command
   async fixedWindowRateLimit(
     key: string,
     timeWindow: number,
@@ -383,12 +295,15 @@ export class RedisClient {
     continueExceeding: boolean,
     exponentialBackoff: boolean,
   ): Promise<{ current: number; timeWindow: number }> {
-    const result = (await (this.client as any).rateLimit(
-      key,
-      timeWindow.toString(),
-      max.toString(),
-      continueExceeding.toString(),
-      exponentialBackoff.toString(),
+    const result = (await this.evalWithFallback(
+      "rateLimit",
+      [key],
+      [
+        timeWindow.toString(),
+        max.toString(),
+        continueExceeding.toString(),
+        exponentialBackoff.toString(),
+      ],
     )) as [number, number];
 
     return {
@@ -397,14 +312,10 @@ export class RedisClient {
     };
   }
 
-  // Get current quota status
   async getQuotaStatus(
     key: string,
     strategy: string,
-  ): Promise<{
-    remaining: number;
-    total: number;
-  }> {
+  ): Promise<{ remaining: number; total: number }> {
     try {
       if (strategy === "sliding_window") {
         const count = await this.client.zcard(key);
@@ -416,20 +327,15 @@ export class RedisClient {
       }
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
-      logger.error({
-        event: "redis_quota_status_error",
-        error: errorMsg,
-      });
+      logger.error({ event: "redis_quota_status_error", error: errorMsg });
       return { remaining: 0, total: 0 };
     }
   }
 
-  // Delete rate limit key
   async deleteRateLimit(key: string): Promise<void> {
     await this.client.del(key);
   }
 
-  // Get all keys matching a pattern
   async getKeys(pattern: string): Promise<string[]> {
     const keys: string[] = [];
     let cursor = 0;
@@ -449,7 +355,6 @@ export class RedisClient {
     return keys;
   }
 
-  // Cache operations
   async get(key: string): Promise<string | null> {
     return await this.client.get(key);
   }
@@ -466,7 +371,6 @@ export class RedisClient {
     await this.client.del(key);
   }
 
-  // Hash operations
   async hSet(key: string, field: string, value: string): Promise<void> {
     await this.client.hset(key, field, value);
   }
@@ -480,12 +384,10 @@ export class RedisClient {
     return await this.client.hgetall(key);
   }
 
-  // Pub/Sub for real-time updates
   async publish(channel: string, message: string): Promise<number> {
     return await this.client.publish(channel, message);
   }
 
-  // Get connection statistics
   async getStats(): Promise<{
     connected: boolean;
     reconnectAttempts: number;
@@ -508,10 +410,7 @@ export class RedisClient {
       };
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
-      logger.error({
-        event: "redis_stats_error",
-        error: errorMsg,
-      });
+      logger.error({ event: "redis_stats_error", error: errorMsg });
 
       return {
         connected: this.isConnected,
@@ -522,7 +421,6 @@ export class RedisClient {
     }
   }
 
-  // Increment counter
   async incr(key: string): Promise<number> {
     return await this.client.incr(key);
   }
@@ -531,12 +429,10 @@ export class RedisClient {
     return await this.client.incrby(key, increment);
   }
 
-  // Expire key
   async expire(key: string, seconds: number): Promise<number> {
     return await this.client.expire(key, seconds);
   }
 
-  // Get TTL
   async ttl(key: string): Promise<number> {
     return await this.client.ttl(key);
   }

@@ -1,7 +1,7 @@
 import { createBunServer as createServer } from "./server";
 import config from "./config/env";
 import { RedisClient } from "./services/redis";
-import { DatabaseClient } from "./services/database";
+import { DatabaseClient, initDb } from "./config/database";
 import logger from "./utils/logger";
 
 const PORT = config.server.port;
@@ -18,9 +18,9 @@ async function startServer() {
 
     redisClient = new RedisClient(config.redis);
     await redisClient.connect();
-    logger.info("✓ Redis connected");
+    logger.info("✓ Redis connected"); // Ensure database schema is initialized
 
-    dbClient = new DatabaseClient(config.database);
+    dbClient = initDb(config.database);
     await dbClient.connect();
     logger.info("✓ Database connected");
 

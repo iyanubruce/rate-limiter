@@ -3,18 +3,10 @@ import logger from "../utils/logger";
 import { drizzle } from "drizzle-orm/node-postgres";
 import type { QueryResult, QueryResultRow } from "pg"; // make sure to import this
 import * as schema from "../database/models";
+import config from "./env";
 const { Pool } = pg;
 
-export interface DatabaseConfig {
-  host: string;
-  port: number;
-  database: string;
-  user: string;
-  password: string;
-  max?: number; // connection pool size
-  idleTimeoutMillis?: number;
-  connectionTimeoutMillis?: number;
-}
+export type DatabaseConfig = typeof config.database;
 
 export interface Tenant {
   id: string;
@@ -47,12 +39,7 @@ export class DatabaseClient {
   private isConnected: boolean = false;
   public readonly db: ReturnType<typeof drizzle<typeof schema>>;
   constructor(config: DatabaseConfig) {
-    this.config = {
-      max: 20,
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 2000,
-      ...config,
-    };
+    this.config = config;
 
     this.pool = new Pool({
       host: this.config.host,
@@ -164,4 +151,7 @@ export function getDbClient() {
   return _instance;
 }
 
-export const db = () => getDbClient().getDb();
+export const db = () => {
+  initDb(config.database);
+  return getDbClient().getDb();
+};

@@ -1,32 +1,25 @@
 import Fastify from "fastify";
 import type { HTTPMethods } from "fastify";
 import type { RedisClient } from "./services/redis";
-import type { DatabaseClient } from "./services/database";
+import type { DatabaseClient } from "./config/database";
 import { registerPlugins } from "./plugins";
-import { registerRoutes } from "./routes";
+import { registerRoutes } from "./api/routes";
 import { websocketHandlers } from "./websocket/native";
 import config from "./config/env";
 import logger from "./utils/logger";
 import type { ServerWebSocket } from "bun";
 import type { WebSocketData } from "./websocket/native";
 
-declare module "fastify" {
-  interface FastifyInstance {
-    redis: RedisClient;
-    db: DatabaseClient;
-  }
-}
-
 export function buildApp(redisClient: RedisClient, dbClient: DatabaseClient) {
   const app = Fastify({
-    logger: false,
+    logger: true,
     trustProxy: true,
     disableRequestLogging: true,
     requestIdHeader: "x-request-id",
   });
 
   app.decorate("redis", redisClient);
-  app.decorate("db", dbClient);
+  app.decorate("dbClient", dbClient);
 
   registerPlugins(app);
   registerRoutes(app);
@@ -94,12 +87,19 @@ export function createBunServer(
       }
 
       try {
+        const headers = Object.fromEntries(req.headers);
+        delete headers["content-length"];
+
+        const payload = req.body
+          ? Buffer.from(await req.arrayBuffer())
+          : undefined;
+
         const injected = await app.inject({
-          url: req.url, // full URL is fine
+          url: req.url,
           method: req.method as any,
-          headers: Object.fromEntries(req.headers),
+          headers,
           query: Object.fromEntries(url.searchParams),
-          payload: req.body ? await req.arrayBuffer() : undefined, // better than .text() for binary
+          payload,
         });
 
         return new Response(injected.payload, {

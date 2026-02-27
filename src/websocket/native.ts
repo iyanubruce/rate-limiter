@@ -1,6 +1,6 @@
 import type { ServerWebSocket } from "bun";
 import type { RedisClient } from "../services/redis";
-import type { DatabaseClient } from "../services/database";
+import type { DatabaseClient } from "../config/database";
 import logger from "../utils/logger";
 
 export interface WebSocketData {

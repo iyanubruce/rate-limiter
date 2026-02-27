@@ -1,8 +1,7 @@
 import type { FastifyInstance, FastifyPluginOptions } from "fastify";
-// import { healthRoutes } from './health';
-// import { metricsRoutes } from './metrics';
-// import { apiV1Routes } from './api/v1';
-import logger from "../utils/logger";
+import { healthRoutes } from "./health";
+import logger from "../../utils/logger";
+import { authRoutes } from "./auth";
 
 export async function registerRoutes(app: FastifyInstance) {
   // Root endpoint
@@ -37,14 +36,8 @@ export async function registerRoutes(app: FastifyInstance) {
     },
   );
 
-  //   // Health check routes
-  //   await app.register(healthRoutes, { prefix: '/health' });
-
-  //   // Metrics routes
-  //   await app.register(metricsRoutes, { prefix: '/metrics' });
-
-  //   // API v1 routes
-  //   await app.register(apiV1Routes, { prefix: '/api/v1' });
+  await app.register(healthRoutes, { prefix: "/health" });
+  await app.register(authRoutes, { prefix: "/auth" });
 
   logger.info("✓ Routes registered");
 }

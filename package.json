@@ -9,7 +9,10 @@
     "dev": "bun run --watch src/index.ts",
     "clean": "rm -rf dist src/utils/embedded-scripts.ts",
     "prepare": "husky",
-    "migrate": "drizzle-kit generate && npx drizzle-kit migrate"
+    "migrate": "drizzle-kit generate && npx drizzle-kit migrate",
+    "db:generate": "drizzle-kit generate",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio"
   },
   "devDependencies": {
     "@commitlint/cli": "^20.4.1",

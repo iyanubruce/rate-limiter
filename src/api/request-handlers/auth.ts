@@ -6,10 +6,12 @@ export const registerHandler = async (
   reply: FastifyReply,
 ) => {
   try {
-    const { email, password, firstName, lastName } = request.body as Record<
-      string,
-      string
-    >;
+    const { email, password, firstName, lastName } = request.body as {
+      email: string;
+      password: string;
+      firstName: string;
+      lastName: string;
+    };
     const result = await authController.register(
       email,
       password,

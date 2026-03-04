@@ -1,5 +1,4 @@
 import Fastify from "fastify";
-import type { HTTPMethods } from "fastify";
 import type { RedisClient } from "./services/redis";
 import type { DatabaseClient } from "./config/database";
 import { registerPlugins } from "./plugins";

@@ -2,7 +2,7 @@ import { UserRepository } from "../../database/repositories/user";
 import JWT from "../../helpers/jwt";
 import { db } from "../../config/database";
 import logger from "../../utils/logger";
-
+import { BadRequestError } from "../../error";
 const userRepository = new UserRepository(db());
 
 export const register = async (
@@ -11,29 +11,25 @@ export const register = async (
   firstName: string,
   lastName: string,
 ) => {
-  try {
-    const existingUser = await userRepository.getUserByEmail(email);
-    if (existingUser) {
-      throw new Error("User already exists");
-    }
+  const existingUser = await userRepository.getUserByEmail(email);
 
-    const user = await userRepository.createUser(
-      email,
-      password,
-      firstName,
-      lastName,
-    );
-
-    const token = JWT.encode({
-      id: user?.id,
-      email: user?.email,
-      role: user?.role,
-    });
-    return { user, token };
-  } catch (error) {
-    logger.error(error);
-    return { error: "Internal server error" };
+  if (existingUser) {
+    throw new BadRequestError("User already exists");
   }
+
+  const user = await userRepository.createUser(
+    email,
+    password,
+    firstName,
+    lastName,
+  );
+
+  const token = JWT.encode({
+    id: user?.id,
+    email: user?.email,
+    role: user?.role,
+  });
+  return { user, token };
 };
 
 export const googleAuth = async (
@@ -42,24 +38,29 @@ export const googleAuth = async (
   first_name: string,
   last_name: string,
 ) => {
-  try {
-    const user = await userRepository.findOrCreateGoogleUser(
-      googleId,
-      email,
-      first_name,
-      last_name,
-    );
-    if (!user) {
-      return { error: "User already exists" };
-    }
-    const token = JWT.encode({
-      id: user.id,
-      email: user.email,
-      role: user.role,
-    });
-    return { user, token };
-  } catch (error) {
-    logger.error(error);
-    return { error: "Internal server error" };
+  const user = await userRepository.findOrCreateGoogleUser(
+    googleId,
+    email,
+    first_name,
+    last_name,
+  );
+  const token = JWT.encode({
+    id: user?.id,
+    email: user?.email,
+    role: user?.role,
+  });
+  return { user, token };
+};
+
+export const login = async (email: string, password: string) => {
+  const user = await userRepository.getUserByEmail(email);
+  if (!user) {
+    throw new BadRequestError("Invalid credentials");
   }
+  const token = JWT.encode({
+    id: user.id,
+    email: user.email,
+    role: user.role,
+  });
+  return { user, token };
 };

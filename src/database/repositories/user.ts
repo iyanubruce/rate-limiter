@@ -73,7 +73,7 @@ export class UserRepository {
     );
   }
 
-  async getUsersByRole(role: "admin" | "moderator" | "user") {
+  async getUsersByRole(role: "admin" | "user") {
     return await this.db.query.users.findMany({
       where: eq(users.role, role),
       orderBy: [users.created_at], // or import desc(users.createdAt) for newest first

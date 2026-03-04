@@ -1,9 +1,15 @@
-import logger from "../../utils/logger";
 import * as authController from "../controllers/auth";
+import type { FastifyReply, FastifyRequest } from "fastify";
 
-export const registerHandler = async (request: any, reply: any) => {
+export const registerHandler = async (
+  request: FastifyRequest,
+  reply: FastifyReply,
+) => {
   try {
-    const { email, password, firstName, lastName } = request.body;
+    const { email, password, firstName, lastName } = request.body as Record<
+      string,
+      string
+    >;
     const result = await authController.register(
       email,
       password,
@@ -12,18 +18,22 @@ export const registerHandler = async (request: any, reply: any) => {
     );
     return reply.code(201).send({ user: result.user, token: result.token });
   } catch (error) {
-    logger.error(error);
-    return reply.code(500).send({ error: "Internal server error" });
+    throw error;
   }
 };
 
-export const loginHandler = async (request: any, reply: any) => {
+export const loginHandler = async (
+  request: FastifyRequest,
+  reply: FastifyReply,
+) => {
   try {
-    const { email, password } = request.body;
+    const { email, password } = request.body as {
+      email: string;
+      password: string;
+    };
     const result = await authController.login(email, password);
     return reply.code(200).send({ user: result.user, token: result.token });
   } catch (error) {
-    logger.error(error);
-    return reply.code(500).send({ error: "Internal server error" });
+    throw error;
   }
 };

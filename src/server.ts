@@ -7,14 +7,24 @@ import { registerRoutes } from "./api/routes";
 import { websocketHandlers } from "./websocket/native";
 import config from "./config/env";
 import logger from "./utils/logger";
+import ErrorHandler from "./error/errorHandler";
 import type { ServerWebSocket } from "bun";
 import type { WebSocketData } from "./websocket/native";
 
 export function buildApp(redisClient: RedisClient, dbClient: DatabaseClient) {
   const app = Fastify({
-    logger: true,
+    logger: {
+      transport: {
+        target: "pino-pretty",
+        options: {
+          colorize: true,
+          translateTime: "HH:MM:ss",
+          ignore: "pid,hostname",
+        },
+      },
+    },
     trustProxy: true,
-    disableRequestLogging: true,
+    disableRequestLogging: false,
     requestIdHeader: "x-request-id",
   });
 
@@ -25,30 +35,33 @@ export function buildApp(redisClient: RedisClient, dbClient: DatabaseClient) {
   registerRoutes(app);
 
   app.setErrorHandler((error, request, reply) => {
+    const isCustomError = error instanceof ErrorHandler;
+    const baseError = error as Error;
+    console.log("isCustomError", isCustomError);
+    const statusCode = isCustomError ? error.getHttpCode() : 500;
+    const message = isCustomError
+      ? error.message
+      : config.server.env === "development"
+        ? (baseError.message ?? String(error))
+        : "Internal server error";
+    const errorName = isCustomError ? error.getName() : "internal error";
+    const data = isCustomError ? error.getData() : null;
+
     logger.error("Request error", {
-      error,
+      error: errorName,
+      message,
+      statusCode,
       reqId: request.id,
       url: request.url,
       method: request.method,
     });
 
-    const statusCode =
-      error instanceof Error &&
-      "statusCode" in error &&
-      typeof error.statusCode === "number"
-        ? error.statusCode
-        : 500;
-    const message =
-      config.server.env === "development"
-        ? error instanceof Error
-          ? error.message
-          : String(error)
-        : "Internal server error";
-
     reply.status(statusCode).send({
       error: true,
+      name: errorName,
       message,
       statusCode,
+      ...(data ? { data } : {}),
       timestamp: new Date().toISOString(),
     });
   });

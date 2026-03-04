@@ -51,7 +51,7 @@ export class DatabaseClient {
       idleTimeoutMillis: this.config.idleTimeoutMillis,
       connectionTimeoutMillis: this.config.connectionTimeoutMillis,
     });
-    this.db = drizzle(this.pool, { schema });
+    this.db = drizzle(this.pool, { schema, logger: true });
     this.setupEventHandlers();
   }
 

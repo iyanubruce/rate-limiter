@@ -5,9 +5,7 @@ import Redis, {
 import logger from "../utils/logger";
 import { loadAllLuaScripts } from "../utils/load-lua-scripts";
 
-// Hybrid loading: embedded (prod) or runtime (dev)
 let LUA_SCRIPTS: Record<string, string>;
-let USING_EMBEDDED = false;
 
 LUA_SCRIPTS = await loadAllLuaScripts();
 

@@ -4,28 +4,36 @@ import { db } from "../../config/database";
 import { users } from "../models"; // assuming ../models exports the users table
 import { roleEnum } from "../models/user"; // import the enum type if needed
 
-export class UserRepository {
+type Transaction = Parameters<
+  Parameters<ReturnType<typeof db>["transaction"]>[0]
+>[0];
+
+export default class UserRepository {
   private db: ReturnType<typeof db>;
   constructor(dbInstance: ReturnType<typeof db>) {
     this.db = dbInstance;
   }
 
   async createUser(
-    email: string,
-    password: string,
-    firstName: string,
-    lastName: string,
-    role: (typeof roleEnum.enumValues)[number] = "admin",
+    data: {
+      email: string;
+      password: string;
+      firstName: string;
+      lastName: string;
+      role?: (typeof roleEnum.enumValues)[number];
+    },
+    transaction?: Transaction,
   ) {
+    const client = transaction || this.db;
     try {
-      const [newUser] = await this.db
+      const [newUser] = await client
         .insert(users)
         .values({
-          email,
-          role,
-          password,
-          first_name: firstName,
-          last_name: lastName,
+          email: data.email,
+          role: data.role || "admin",
+          password: data.password,
+          first_name: data.firstName,
+          last_name: data.lastName,
         })
         .returning();
 
@@ -40,44 +48,72 @@ export class UserRepository {
   }
 
   async findOrCreateGoogleUser(
-    googleId: string,
-    email: string,
-    first_name: string,
-    last_name: string,
-    role: (typeof roleEnum.enumValues)[number] = "admin",
+    data: {
+      googleId: string;
+      email: string;
+      firstName: string;
+      lastName: string;
+      role?: (typeof roleEnum.enumValues)[number];
+    },
+    transaction?: Transaction,
   ) {
-    const user = await this.getUserByEmail(email);
+    const client = transaction || this.db;
+    const user = await this.getUserByEmail(data.email, transaction);
     if (user) {
       return user;
     }
-    return this.createUser(email, googleId, first_name, last_name, role);
+
+    const [newUser] = await client
+      .insert(users)
+      .values({
+        email: data.email,
+        role: data.role || "admin",
+        first_name: data.firstName,
+        last_name: data.lastName,
+        password: "", // password is required in schema, setting empty or random for OAuth users
+      })
+      .returning();
+
+    return newUser ?? null;
   }
   /**
    * Finds a user by email (case-sensitive).
    * @returns user object or null if not found
    */
-  async getUserByEmail(email: string) {
+  async getUserByEmail(email: string, transaction?: Transaction) {
+    const client = transaction || this.db;
     return (
-      (await this.db.query.users.findFirst({
+      (await client.query.users.findFirst({
         where: eq(users.email, email),
         // Optional: columns: { id: true, email: true, role: true, createdAt: true }
       })) ?? null
     );
   }
 
-  async getUserById(id: number) {
+  async getUserById(id: number, transaction?: Transaction) {
+    const client = transaction || this.db;
     return (
-      (await this.db.query.users.findFirst({
+      (await client.query.users.findFirst({
         where: eq(users.id, id),
       })) ?? null
     );
   }
 
-  async getUsersByRole(role: "admin" | "user") {
-    return await this.db.query.users.findMany({
+  async getUsersByRole(role: "admin" | "user", transaction?: Transaction) {
+    const client = transaction || this.db;
+    return await client.query.users.findMany({
       where: eq(users.role, role),
       orderBy: [users.created_at], // or import desc(users.createdAt) for newest first
       limit: 50,
     });
+  }
+
+  async findById(id: number, transaction?: Transaction) {
+    const client = transaction || this.db;
+    return (
+      (await client.query.users.findFirst({
+        where: eq(users.id, id),
+      })) ?? null
+    );
   }
 }

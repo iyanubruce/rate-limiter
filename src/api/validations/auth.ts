@@ -21,3 +21,23 @@ export const loginSchema = {
     },
   },
 };
+
+export const refreshTokenSchema = {
+  body: {
+    type: "object",
+    required: ["refreshToken"],
+    properties: {
+      refreshToken: { type: "string" },
+    },
+  },
+  response: {
+    200: {
+      type: "object",
+      properties: {
+        token: { type: "string" },
+        expiresIn: { type: "integer" },
+      },
+    },
+    401: { $ref: "errors#/unauthorized" },
+  },
+};

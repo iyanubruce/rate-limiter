@@ -1,8 +1,9 @@
 import { createBunServer as createServer } from "./server";
 import config from "./config/env";
-import { RedisClient } from "./services/redis";
+import RedisClient from "./services/redis";
 import { DatabaseClient, initDb } from "./config/database";
 import logger from "./utils/logger";
+import { setupTimescaleDB } from "./config/timescaledb";
 
 const PORT = config.server.port;
 const HOST = config.server.host;
@@ -24,6 +25,7 @@ async function startServer() {
     await dbClient.connect();
     logger.info("✓ Database connected");
 
+    await setupTimescaleDB(dbClient.getDb());
     // Create and start server
     server = await createServer(redisClient, dbClient);
 

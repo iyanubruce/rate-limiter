@@ -1,8 +1,10 @@
 import type { ServerWebSocket } from "bun";
-import type { RedisClient } from "../services/redis";
 import type { DatabaseClient } from "../config/database";
 import logger from "../utils/logger";
-
+import { getDbClient } from "../config/database";
+import { createHash } from "crypto";
+import ApiKeyRepository from "../database/repositories/api-keys";
+import type RedisClient from "../services/redis";
 export interface WebSocketData {
   connectedAt: number;
   apiKey: string | null;
@@ -11,6 +13,15 @@ export interface WebSocketData {
 
 // Connection registry
 const connections = new Map<ServerWebSocket<WebSocketData>, WebSocketData>();
+const subscriptions = new Map<ServerWebSocket<WebSocketData>, Set<string>>();
+const metricsInterval: Map<string, NodeJS.Timeout> = new Map();
+
+export interface WebSocketData {
+  connectedAt: number;
+  apiKey: string | null;
+  tenantId?: string;
+  subscriptions?: Set<string>;
+}
 
 export const websocketHandlers = {
   onOpen(
@@ -18,6 +29,7 @@ export const websocketHandlers = {
     redis: RedisClient,
     db: DatabaseClient,
   ) {
+    ws.data.subscriptions = new Set();
     connections.set(ws, ws.data);
 
     logger.info({
@@ -26,12 +38,12 @@ export const websocketHandlers = {
       connectedAt: ws.data.connectedAt,
     });
 
-    // Send welcome message
     ws.send(
       JSON.stringify({
         type: "connected",
         timestamp: Date.now(),
         message: "Connected to RateLimitr real-time stream",
+        availableChannels: ["events", "metrics", "alerts", "blocks"],
       }),
     );
   },
@@ -51,7 +63,7 @@ export const websocketHandlers = {
           break;
 
         case "subscribe":
-          await handleSubscribe(ws, data, redis);
+          await handleSubscribe(ws, data, redis, db);
           break;
 
         case "unsubscribe":
@@ -94,6 +106,11 @@ export const websocketHandlers = {
   },
 
   onClose(ws: ServerWebSocket<WebSocketData>, code: number, reason: string) {
+    const subs = subscriptions.get(ws);
+    if (subs) {
+      subs.clear();
+      subscriptions.delete(ws);
+    }
     connections.delete(ws);
 
     logger.info({
@@ -113,7 +130,6 @@ export const websocketHandlers = {
   },
 };
 
-// Authenticate WebSocket connection
 async function handleAuthentication(
   ws: ServerWebSocket<WebSocketData>,
   data: any,
@@ -133,9 +149,24 @@ async function handleAuthentication(
     return;
   }
 
-  // TODO: Validate API key against database
-  // For now, just accept it
+  const keyHash = createHash("sha256").update(apiKey).digest("hex");
+  const drizzleInstance = getDbClient().getDb();
+  const apiKeyRepo = new ApiKeyRepository(drizzleInstance);
+  const keyRecord = await apiKeyRepo.getValidApiKeyByKeyHash(keyHash);
+
+  if (!keyRecord) {
+    ws.send(
+      JSON.stringify({
+        type: "auth_error",
+        message: "Invalid API key",
+        timestamp: Date.now(),
+      }),
+    );
+    return;
+  }
+
   ws.data.apiKey = apiKey;
+  ws.data.tenantId = String(keyRecord.tenantId ?? "");
 
   ws.send(
     JSON.stringify({
@@ -150,11 +181,11 @@ async function handleAuthentication(
   });
 }
 
-// Subscribe to specific events
 async function handleSubscribe(
   ws: ServerWebSocket<WebSocketData>,
   data: any,
   redis: RedisClient,
+  db: DatabaseClient,
 ) {
   if (!ws.data.apiKey) {
     ws.send(
@@ -167,40 +198,119 @@ async function handleSubscribe(
     return;
   }
 
-  // TODO: Implement subscription logic
+  const channels = data.channels || [];
+  const validChannels = ["events", "metrics", "alerts", "blocks"];
+  const subscribedChannels: string[] = [];
+
+  for (const channel of channels) {
+    if (validChannels.includes(channel)) {
+      if (!ws.data.subscriptions) {
+        ws.data.subscriptions = new Set();
+      }
+      ws.data.subscriptions.add(channel);
+      subscribedChannels.push(channel);
+
+      if (channel === "metrics" && !metricsInterval.has(String(ws.data.tenantId))) {
+        const interval = setInterval(async () => {
+          try {
+            const metricsData = await gatherMetrics(redis, db);
+            ws.send(
+              JSON.stringify({
+                type: "metrics",
+                data: metricsData,
+                timestamp: Date.now(),
+              }),
+            );
+          } catch (error) {
+            logger.error({ event: "metrics_gather_error", error });
+          }
+        }, 5000);
+        metricsInterval.set(String(ws.data.tenantId), interval);
+      }
+    }
+  }
+
+  if (ws.data.subscriptions) {
+    subscriptions.set(ws, ws.data.subscriptions);
+  }
+
   ws.send(
     JSON.stringify({
       type: "subscribed",
-      channels: data.channels || [],
+      channels: subscribedChannels,
       timestamp: Date.now(),
     }),
   );
 }
 
-// Unsubscribe from events
 async function handleUnsubscribe(
   ws: ServerWebSocket<WebSocketData>,
   data: any,
   redis: RedisClient,
 ) {
-  // TODO: Implement unsubscription logic
+  const channels = data.channels || [];
+  const unsubscribedChannels: string[] = [];
+
+  for (const channel of channels) {
+    if (ws.data.subscriptions?.has(channel)) {
+      ws.data.subscriptions.delete(channel);
+      unsubscribedChannels.push(channel);
+
+      if (channel === "metrics") {
+        const interval = metricsInterval.get(String(ws.data.tenantId));
+        if (interval) {
+          clearInterval(interval);
+          metricsInterval.delete(String(ws.data.tenantId));
+        }
+      }
+    }
+  }
+
+  if (ws.data.subscriptions) {
+    subscriptions.set(ws, ws.data.subscriptions);
+  }
+
   ws.send(
     JSON.stringify({
       type: "unsubscribed",
-      channels: data.channels || [],
+      channels: unsubscribedChannels,
       timestamp: Date.now(),
     }),
   );
 }
 
-// Broadcast to all authenticated connections
+async function gatherMetrics(redis: RedisClient, db: DatabaseClient) {
+  const info = await redis.client.info("stats");
+  const parsedInfo = parseRedisInfo(info);
+
+  return {
+    connectedClients: parsedInfo.connected_clients || 0,
+    usedMemory: parsedInfo.used_memory_human || "0",
+    totalCommandsProcessed: parsedInfo.total_commands_processed || 0,
+    instantaneousOpsPerSec: parsedInfo.instantaneous_ops_per_sec || 0,
+    uptime: parsedInfo.uptime_in_days || 0,
+  };
+}
+
+function parseRedisInfo(info: string): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const line of info.split("\r\n")) {
+    if (line && !line.startsWith("#")) {
+      const [key, value] = line.split(":");
+      if (key && value) {
+        result[key] = value;
+      }
+    }
+  }
+  return result;
+}
+
 export function broadcastToAuthenticated(message: any) {
   const payload = JSON.stringify(message);
   let sent = 0;
 
   for (const [ws, data] of connections.entries()) {
     if (data.apiKey && ws.readyState === 1) {
-      // 1 = OPEN
       try {
         ws.send(payload);
         sent++;
@@ -217,7 +327,28 @@ export function broadcastToAuthenticated(message: any) {
   return sent;
 }
 
-// Broadcast quota violation event
+export function broadcastToChannel(channel: string, message: any) {
+  const payload = JSON.stringify(message);
+  let sent = 0;
+
+  for (const [ws, subs] of subscriptions.entries()) {
+    if (subs.has(channel) && ws.readyState === 1) {
+      try {
+        ws.send(payload);
+        sent++;
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        logger.error({
+          event: "websocket_broadcast_error",
+          error: errorMsg,
+        });
+      }
+    }
+  }
+
+  return sent;
+}
+
 export function broadcastQuotaViolation(tenantId: string, details: any) {
   const message = {
     type: "quota_violation",
@@ -229,15 +360,42 @@ export function broadcastQuotaViolation(tenantId: string, details: any) {
   return broadcastToAuthenticated(message);
 }
 
-// Get connection stats
+export function broadcastBlockEvent(details: any) {
+  const message = {
+    type: "block",
+    data: details,
+    timestamp: Date.now(),
+  };
+
+  return broadcastToChannel("blocks", message) + broadcastToChannel("events", message);
+}
+
+export function broadcastAlert(alertType: string, details: any) {
+  const message = {
+    type: alertType,
+    data: details,
+    timestamp: Date.now(),
+  };
+
+  return broadcastToChannel("alerts", message);
+}
+
 export function getConnectionStats() {
   const authenticated = Array.from(connections.values()).filter(
     (data) => data.apiKey !== null,
   ).length;
 
+  const channelCounts: Record<string, number> = {};
+  for (const subs of subscriptions.values()) {
+    for (const channel of subs) {
+      channelCounts[channel] = (channelCounts[channel] || 0) + 1;
+    }
+  }
+
   return {
     total: connections.size,
     authenticated,
     unauthenticated: connections.size - authenticated,
+    channelCounts,
   };
 }

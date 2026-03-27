@@ -7,7 +7,13 @@ import {
   timestamp,
   pgEnum,
 } from "drizzle-orm/pg-core";
-
+import { apiKeys } from "./api-keys";
+import { rateLimitRules } from "./rate-limit-rules";
+import {
+  relations,
+  type InferSelectModel,
+  type InferInsertModel,
+} from "drizzle-orm";
 export const roleEnum = pgEnum("user_role", ["admin", "user"]);
 
 export const users = pgTable("users", {
@@ -23,3 +29,12 @@ export const users = pgTable("users", {
     .defaultNow()
     .$onUpdate(() => new Date()),
 });
+
+export const usersRelations = relations(users, ({ many }) => ({
+  apiKeys: many(apiKeys),
+  rateLimitRules: many(rateLimitRules),
+}));
+
+export type User = InferSelectModel<typeof users>;
+export type UserInsert = InferInsertModel<typeof users>;
+export type SafeUser = Omit<User, "password">;

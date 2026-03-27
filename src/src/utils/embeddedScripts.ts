@@ -3,7 +3,7 @@
 // Generated at: 2026-02-17T13:35:36.340Z
 
 export const LUA_SCRIPTS: Record<string, string> = {
-  rate-limit: `local key = KEYS[1]
+  "rate-limit": `local key = KEYS[1]
 local timeWindow = tonumber(ARGV[1])
 local max = tonumber(ARGV[2])
 local continueExceeding = ARGV[3] == 'true'
@@ -23,7 +23,7 @@ else
 end
 
 return {current, timeWindow}`,
-  token-bucket: `local key = KEYS[1]
+  "token-bucket": `local key = KEYS[1]
 local limit = tonumber(ARGV[1])
 local window = tonumber(ARGV[2])
 local now = tonumber(ARGV[3])
@@ -52,7 +52,7 @@ redis.call('HMSET', key, 'tokens', tokens, 'last_refill', last_refill)
 redis.call('EXPIRE', key, window * 2)
 
 return {allowed, math.floor(tokens), last_refill + (window * 1000)}`,
-  sliding-window: `local key = KEYS[1]
+  "sliding-window": `local key = KEYS[1]
 local limit = tonumber(ARGV[1])
 local window_start = tonumber(ARGV[2])
 local now = tonumber(ARGV[3])
@@ -74,7 +74,7 @@ local remaining = math.max(0, limit - current)
 local reset_at = now + window_ms
 
 return {allowed, remaining, reset_at}`,
-  leaky-bucket: `local key = KEYS[1]
+  "leaky-bucket": `local key = KEYS[1]
 local capacity = tonumber(ARGV[1])
 local leak_rate = tonumber(ARGV[2])
 local now = tonumber(ARGV[3])

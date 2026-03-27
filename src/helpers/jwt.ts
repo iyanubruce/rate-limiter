@@ -1,5 +1,5 @@
-import jwt from 'jsonwebtoken';
-import appConfig from '../config/env';
+import jwt from "jsonwebtoken";
+import appConfig from "../config/env";
 
 export default class JWT {
   private static readPublicKey(): string {
@@ -29,8 +29,17 @@ export default class JWT {
   public static decode(token: string): jwt.JwtPayload {
     const cert = this.readPublicKey();
     const decoded = jwt.verify(token, cert);
-    if (typeof decoded === 'string') {
-      throw new Error('Expected JWT payload to be an object');
+    if (typeof decoded === "string") {
+      throw new Error("Expected JWT payload to be an object");
+    }
+    return decoded as jwt.JwtPayload;
+  }
+
+  public static verify(token: string): jwt.JwtPayload {
+    const cert = this.readPublicKey();
+    const decoded = jwt.verify(token, cert);
+    if (typeof decoded === "string") {
+      throw new Error("Expected JWT payload to be an object");
     }
     return decoded as jwt.JwtPayload;
   }

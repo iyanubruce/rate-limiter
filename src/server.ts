@@ -1,5 +1,5 @@
 import Fastify from "fastify";
-import type { RedisClient } from "./services/redis";
+import type RedisClient from "./services/redis";
 import type { DatabaseClient } from "./config/database";
 import { registerPlugins } from "./plugins";
 import { registerRoutes } from "./api/routes";
@@ -91,7 +91,8 @@ export function createBunServer(
     async fetch(req, server) {
       const url = new URL(req.url);
 
-      if (url.pathname === "/ws") {
+      // WebSocket endpoints
+      if (url.pathname === "/ws" || url.pathname === "/ws/events" || url.pathname === "/ws/metrics") {
         if (server.upgrade(req)) {
           return; // upgrade successful → Bun calls websocket handlers
         }
@@ -132,6 +133,8 @@ export function createBunServer(
 
     websocket: {
       open(ws) {
+        const url = new URL(ws.url);
+        ws.data.pathname = url.pathname;
         websocketHandlers.onOpen(
           ws as unknown as ServerWebSocket<WebSocketData>,
           redisClient,

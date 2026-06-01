@@ -1,13 +1,17 @@
-import HttpStatus from 'http-status-codes';
+import HttpStatus from "http-status-codes";
 
-import ErrorHandler from './errorHandler';
+import ErrorHandler from "./errorHandler";
 
 export default class ServiceUnavailableError extends ErrorHandler {
-  protected error_name = 'service_unavailable';
+  protected override error_name = "service_unavailable";
 
-  protected httpCode = HttpStatus.SERVICE_UNAVAILABLE;
+  protected override httpCode = HttpStatus.SERVICE_UNAVAILABLE;
 
-  public constructor(message: string = 'Service currently unavailable', error: Error | undefined = undefined, data: any = null) {
+  public constructor(
+    message: string = "Service currently unavailable",
+    error: Error | undefined = undefined,
+    data: any = null,
+  ) {
     super(message, error, data);
     Error.captureStackTrace(this, this.constructor);
   }

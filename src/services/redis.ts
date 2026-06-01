@@ -18,7 +18,7 @@ export interface RedisConfig {
   retryDelay?: number;
 }
 
-export class RedisClient {
+export default class RedisClient {
   public client: RedisClientType;
   private config: RedisConfig;
   private isConnected: boolean = false;

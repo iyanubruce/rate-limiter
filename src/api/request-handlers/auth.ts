@@ -39,3 +39,18 @@ export const loginHandler = async (
     throw error;
   }
 };
+
+export const refreshHandler = async (
+  request: FastifyRequest,
+  reply: FastifyReply,
+) => {
+  try {
+    const { refreshToken } = request.body as {
+      refreshToken: string;
+    };
+    const result = await authController.refresh(refreshToken);
+    return reply.code(200).send(result);
+  } catch (error) {
+    throw error;
+  }
+};

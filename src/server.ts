@@ -9,75 +9,8 @@ import logger from "./utils/logger";
 import ErrorHandler from "./error/errorHandler";
 import type { ServerWebSocket } from "bun";
 import type { WebSocketData } from "./websocket/native";
+import buildApp from "./helpers/server";
 
-export function buildApp(redisClient: RedisClient, dbClient: DatabaseClient) {
-  const app = Fastify({
-    logger: {
-      transport: {
-        target: "pino-pretty",
-        options: {
-          colorize: true,
-          translateTime: "HH:MM:ss",
-          ignore: "pid,hostname",
-        },
-      },
-    },
-    trustProxy: true,
-    disableRequestLogging: false,
-    requestIdHeader: "x-request-id",
-  });
-
-  app.decorate("redis", redisClient);
-  app.decorate("dbClient", dbClient);
-
-  registerPlugins(app);
-  registerRoutes(app);
-
-  app.setErrorHandler((error, request, reply) => {
-    const isCustomError = error instanceof ErrorHandler;
-    const baseError = error as Error;
-    console.log("isCustomError", isCustomError);
-    const statusCode = isCustomError ? error.getHttpCode() : 500;
-    const message = isCustomError
-      ? error.message
-      : config.server.env === "development"
-        ? (baseError.message ?? String(error))
-        : "Internal server error";
-    const errorName = isCustomError ? error.getName() : "internal error";
-    const data = isCustomError ? error.getData() : null;
-
-    logger.error("Request error", {
-      error: errorName,
-      message,
-      statusCode,
-      reqId: request.id,
-      url: request.url,
-      method: request.method,
-    });
-
-    reply.status(statusCode).send({
-      error: true,
-      name: errorName,
-      message,
-      statusCode,
-      ...(data ? { data } : {}),
-      timestamp: new Date().toISOString(),
-    });
-  });
-
-  app.setNotFoundHandler((request, reply) => {
-    reply.status(404).send({
-      error: true,
-      message: "Route not found",
-      statusCode: 404,
-      path: request.url,
-    });
-  });
-
-  return app;
-}
-
-// Optional: export a ready-to-use server creator
 export function createBunServer(
   redisClient: RedisClient,
   dbClient: DatabaseClient,

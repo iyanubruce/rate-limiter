@@ -39,3 +39,27 @@ export const loginHandler = async (
     throw error;
   }
 };
+
+export const googleAuthHandler = async (
+  request: FastifyRequest,
+  reply: FastifyReply,
+) => {
+  try {
+    const { googleId, email, firstName, lastName } = request.body as {
+      googleId: string;
+      email: string;
+      firstName: string;
+      lastName: string;
+    };
+
+    const result = await authController.googleAuth(
+      googleId,
+      email,
+      firstName,
+      lastName,
+    );
+    return reply.code(200).send({ user: result.user, token: result.token });
+  } catch (error) {
+    throw error;
+  }
+};

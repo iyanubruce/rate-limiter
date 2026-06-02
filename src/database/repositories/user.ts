@@ -2,7 +2,7 @@
 import { eq } from "drizzle-orm"; // ← import eq here (needed for v2 syntax)
 import { db } from "../../config/database";
 import { users } from "../models"; // assuming ../models exports the users table
-import { roleEnum } from "../models/user"; // import the enum type if needed
+import type { userRole } from "../models/user"; // import the enum type if needed
 
 export class UserRepository {
   private db: ReturnType<typeof db>;
@@ -15,7 +15,7 @@ export class UserRepository {
     password: string,
     firstName: string,
     lastName: string,
-    role: (typeof roleEnum.enumValues)[number] = "admin",
+    role: userRole = "admin",
   ) {
     try {
       const [newUser] = await this.db
@@ -38,13 +38,40 @@ export class UserRepository {
       throw err;
     }
   }
+  async createGoogleUser(
+    googleId: string,
+    email: string,
+    firstName: string,
+    lastName: string,
+    role: userRole = "admin",
+  ) {
+    try {
+      const [newUser] = await this.db
+        .insert(users)
+        .values({
+          google_id: googleId,
+          email,
+          role,
+          first_name: firstName,
+          last_name: lastName,
+        })
+        .returning();
 
+      return newUser ?? null;
+    } catch (err: any) {
+      // Postgres unique violation code = 23505 (duplicate email)
+      if (err?.code === "23505") {
+        return null;
+      }
+      throw err;
+    }
+  }
   async findOrCreateGoogleUser(
     googleId: string,
     email: string,
     first_name: string,
     last_name: string,
-    role: (typeof roleEnum.enumValues)[number] = "admin",
+    role: userRole = "admin",
   ) {
     const user = await this.getUserByEmail(email);
     if (user) {

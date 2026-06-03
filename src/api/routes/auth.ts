@@ -4,9 +4,10 @@ import {
   registerSchema,
   loginSchema,
   googleAuthSchema,
+  refreshTokenSchema,
 } from "../validations/auth";
 
-export const authRoutes: FastifyPluginAsync = async (fastify) => {
+const authRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post(
     "/register",
     { schema: registerSchema },
@@ -20,4 +21,12 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
   );
 
   fastify.post("/login", { schema: loginSchema }, authHandler.loginHandler);
+
+  fastify.post(
+    "/refresh",
+    { schema: refreshTokenSchema },
+    authHandler.refreshHandler,
+  );
 };
+
+export default authRoutes;

@@ -9,42 +9,33 @@ import config from "../../config/env";
 const redis = new Redis(config.redis);
 const ruleRepository = new RateLimitRuleRepository(db());
 
-export async function checkRateLimit(identifier: string) {
-  const result = await redis.checkRateLimit(
-    `ratelimit:${identifier}`,
-    config.rateLimit.defaultQuota,
-    config.rateLimit.defaultWindow,
-    config.rateLimit.defaultStrategy as any,
-  );
-
-  return {
-    ...result,
-    limit: config.rateLimit.defaultQuota,
-    strategy: config.rateLimit.defaultStrategy,
-  };
-}
-
-export async function createRule(userId: number, data: {
-  name: string;
-  strategy: string;
-  limit: number;
-  windowMs: number;
-  endpoint?: string;
-  ipWhitelist?: string;
-  isActive?: boolean;
-  burstAllowance?: number;
-}) {
+export async function createRule(
+  userId: number,
+  data: {
+    name: string;
+    strategy: string;
+    limit: number;
+    windowMs: number;
+    endpoint?: string;
+    ipWhitelist?: string;
+    isActive?: boolean;
+    burstAllowance?: number;
+  },
+) {
   return await ruleRepository.createRule({
     userId,
     ...data,
   });
 }
 
-export async function listRules(userId: number, options: {
-  limit: number;
-  page: number;
-  status?: string;
-}) {
+export async function listRules(
+  userId: number,
+  options: {
+    limit: number;
+    page: number;
+    status?: string;
+  },
+) {
   const { limit, page } = options;
   const offset = (page - 1) * limit;
 
@@ -69,16 +60,20 @@ export async function listRules(userId: number, options: {
   };
 }
 
-export async function updateRule(ruleId: number, userId: number, data: Partial<{
-  name: string;
-  strategy: string;
-  limit: number;
-  windowMs: number;
-  endpoint: string;
-  ipWhitelist: string;
-  isActive: boolean;
-  burstAllowance: number;
-}>) {
+export async function updateRule(
+  ruleId: number,
+  userId: number,
+  data: Partial<{
+    name: string;
+    strategy: string;
+    limit: number;
+    windowMs: number;
+    endpoint: string;
+    ipWhitelist: string;
+    isActive: boolean;
+    burstAllowance: number;
+  }>,
+) {
   const existing = await ruleRepository.getRuleById(ruleId);
   if (!existing) {
     return null;
@@ -140,8 +135,13 @@ export async function getQuotaForApiKey(apiKeyId: number, userId?: number) {
     throw new Error("API key not found");
   }
 
-  const result = await redis.getQuotaStatus(`apikey:${apiKeyId}`, "token_bucket");
-  const override = (key.rateLimitOverride || {}) as { requestsPerSecond?: number };
+  const result = await redis.getQuotaStatus(
+    `apikey:${apiKeyId}`,
+    "token_bucket",
+  );
+  const override = (key.rateLimitOverride || {}) as {
+    requestsPerSecond?: number;
+  };
 
   return {
     apiKeyId,
@@ -154,11 +154,15 @@ export async function getQuotaForApiKey(apiKeyId: number, userId?: number) {
   };
 }
 
-export async function updateQuotaForApiKey(apiKeyId: number, userId: number, data: {
-  limit?: number;
-  windowSeconds?: number;
-  strategy?: string;
-}) {
+export async function updateQuotaForApiKey(
+  apiKeyId: number,
+  userId: number,
+  data: {
+    limit?: number;
+    windowSeconds?: number;
+    strategy?: string;
+  },
+) {
   const key = await db().query.apiKeys.findFirst({
     where: eq(apiKeys.id, apiKeyId),
   });
@@ -167,13 +171,23 @@ export async function updateQuotaForApiKey(apiKeyId: number, userId: number, dat
     throw new Error("API key not found or unauthorized");
   }
 
-  const existingOverride = (key.rateLimitOverride || {}) as { requestsPerSecond?: number; windowSeconds?: number };
+  const existingOverride = (key.rateLimitOverride || {}) as {
+    requestsPerSecond?: number;
+    windowSeconds?: number;
+  };
   const rateLimitOverride = {
-    requestsPerSecond: data.limit || existingOverride.requestsPerSecond || config.rateLimit.defaultQuota,
-    windowSeconds: data.windowSeconds || existingOverride.windowSeconds || config.rateLimit.defaultWindow,
+    requestsPerSecond:
+      data.limit ||
+      existingOverride.requestsPerSecond ||
+      config.rateLimit.defaultQuota,
+    windowSeconds:
+      data.windowSeconds ||
+      existingOverride.windowSeconds ||
+      config.rateLimit.defaultWindow,
   };
 
-  await db().update(apiKeys)
+  await db()
+    .update(apiKeys)
     .set({ rateLimitOverride, updatedAt: new Date() })
     .where(eq(apiKeys.id, apiKeyId));
 
@@ -184,7 +198,11 @@ export async function updateQuotaForApiKey(apiKeyId: number, userId: number, dat
   };
 }
 
-export async function swapRuleStrategy(ruleId: number, userId: number, strategy: string) {
+export async function swapRuleStrategy(
+  ruleId: number,
+  userId: number,
+  strategy: string,
+) {
   const rule = await ruleRepository.getRuleById(ruleId);
   if (!rule || rule.userId !== userId) {
     throw new Error("Rule not found or unauthorized");

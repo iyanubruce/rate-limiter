@@ -4,34 +4,15 @@ import { createJsonResponse, createErrorResponse } from "../utils/response";
 import { createHash } from "crypto";
 import { findApiKey } from "./db";
 import type { BunRequest } from "bun";
-
+import type { KeyMetadata } from "./types";
 const redis = new Redis(config.redis);
-
-interface KeyMetadata {
-  userId: number;
-  scopes: string[];
-  rateLimitOverride?: {
-    requestsPerSecond?: number;
-    burstSize?: number;
-    windowMs?: number;
-    strategy?: string;
-    endpoints?: Record<
-      string,
-      { requestsPerSecond: number; burstSize?: number }
-    >;
-  };
-  expiresAt?: string | null;
-  revokedAt: null | string;
-}
 
 export const createCheckHandler = () => {
   const defaultQuota = config.rateLimit.defaultQuota;
   const defaultWindow = config.rateLimit.defaultWindow;
 
-  return async (req: Request): Promise<Response> => {
-    // Standard Bun Request object
+  return async (req: BunRequest): Promise<Response> => {
     try {
-      // 🟢 Fix Bun header retrieval
       const apiKey = req.headers.get("x-api-key");
 
       if (!apiKey) {
@@ -46,13 +27,10 @@ export const createCheckHandler = () => {
       const keyHash = createHash("sha256").update(apiKey).digest("hex");
       const redisKey = `key:${keyHash}`;
 
-      // Try to read metadata cache from Redis
       const keyMetadataStr = await redis.client.get(redisKey);
 
       if (keyMetadataStr) {
-        // 🟢 CACHE HIT
         keyMetadata = JSON.parse(keyMetadataStr);
-        // Reset sliding 1-hour expiration safely in background
         redis.client.expire(redisKey, 3600).catch(() => {});
       } else {
         const databaseKey = await findApiKey(keyHash);
@@ -61,7 +39,6 @@ export const createCheckHandler = () => {
           return createErrorResponse("API key not found or revoked", 401);
         }
 
-        // Structure metadata for caching
         keyMetadata = {
           userId: databaseKey.userId,
           scopes: databaseKey.scopes || [],
@@ -72,11 +49,9 @@ export const createCheckHandler = () => {
           revokedAt: null,
         };
 
-        // Seed Redis so the next client execution is instantaneous
         await redis.client.setex(redisKey, 3600, JSON.stringify(keyMetadata));
       }
 
-      // Extract custom configuration overrides
       if (keyMetadata.rateLimitOverride) {
         quota = keyMetadata.rateLimitOverride.requestsPerSecond || defaultQuota;
         window = keyMetadata.rateLimitOverride.windowMs

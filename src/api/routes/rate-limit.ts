@@ -14,30 +14,6 @@ import * as rateLimitHandler from "../request-handlers/rate-limit";
 
 const rateLimitRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get(
-    "/v1/check",
-    {
-      schema: checkRateLimitSchema,
-    },
-    rateLimitHandler.checkRateLimit,
-  );
-
-  fastify.post(
-    "/v1/check",
-    {
-      schema: checkRateLimitPostSchema,
-    },
-    rateLimitHandler.checkRateLimitPost,
-  );
-
-  fastify.post(
-    "/v1/check/batch",
-    {
-      schema: batchCheckSchema,
-    },
-    rateLimitHandler.batchCheckRateLimit,
-  );
-
-  fastify.get(
     "/v1/rules",
     {
       schema: listRulesSchema,
@@ -94,7 +70,12 @@ const rateLimitRoutes: FastifyPluginAsync = async (fastify) => {
           properties: {
             strategy: {
               type: "string",
-              enum: ["token_bucket", "sliding_window", "leaky_bucket", "fixed_window"],
+              enum: [
+                "token_bucket",
+                "sliding_window",
+                "leaky_bucket",
+                "fixed_window",
+              ],
             },
           },
         },

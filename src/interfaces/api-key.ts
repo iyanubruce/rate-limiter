@@ -1,5 +1,5 @@
 import type { SQL } from "drizzle-orm";
-
+import type { RateLimitOverride } from "../database/models/api-keys";
 export interface ListKeysInterface {
   limit?: number;
   page?: number;
@@ -20,7 +20,7 @@ export interface CreateKeyInput {
   name: string;
   description?: string;
   scopes?: string[];
-  rateLimitOverride?: any;
+  rateLimitOverride?: RateLimitOverride;
   ipAllowlist?: string[];
   expiresAt?: string;
   metadata?: any;

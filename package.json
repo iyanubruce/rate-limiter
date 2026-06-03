@@ -5,8 +5,10 @@
   "private": true,
   "scripts": {
     "embed:lua": "bun run src/scripts/embed-lua.ts",
-    "start": "bun run src/index.ts",
-    "dev": "bun run --watch src/index.ts",
+    "start:admin": "bun run src/index.ts",
+    "dev:admin": "bun run --watch --no-clear src/index.ts",
+    "start:traffic": "bun run src/entry-traffic.ts",
+    "dev:traffic": "bun --no-clear-screen --watch src/entry-traffic.ts",
     "clean": "rm -rf dist src/utils/embedded-scripts.ts",
     "prepare": "husky",
     "db:migrate": "drizzle-kit migrate",

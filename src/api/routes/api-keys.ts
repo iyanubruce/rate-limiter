@@ -11,16 +11,16 @@ import { validateAccessToken } from "../middleware/validate-access-token";
 
 const apiKeyRoutes: FastifyPluginAsync = async (fastify) => {
   await fastify.register(async (fastify) => {
-    // fastify.addHook("preHandler", validateAccessToken);
+    fastify.addHook("preHandler", validateAccessToken);
+
+    fastify.post("/keys", { schema: createKeySchema }, apiKeyHandler.createKey);
 
     fastify.get("/keys", { schema: listKeysSchema }, apiKeyHandler.listKeys);
 
-    fastify.post("/", { schema: createKeySchema }, apiKeyHandler.createKey);
-
-    fastify.get("/:keyId", { schema: getKeySchema }, apiKeyHandler.getKey);
+    fastify.get("/keys/:keyId", { schema: getKeySchema }, apiKeyHandler.getKey);
 
     fastify.patch(
-      "/:keyId",
+      "/keys/:keyId",
       {
         schema: updateKeySchema,
       },
@@ -28,7 +28,7 @@ const apiKeyRoutes: FastifyPluginAsync = async (fastify) => {
     );
 
     fastify.delete(
-      "/:keyId",
+      "/keys/:keyId",
       {
         schema: deleteKeySchema,
       },

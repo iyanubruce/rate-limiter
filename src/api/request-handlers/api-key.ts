@@ -32,6 +32,7 @@ export const createKey = async (
       userId!,
     );
     return reply.code(201).send(data);
+    console.log("data recieved", data);
   } catch (error) {
     throw error;
   }
@@ -66,39 +67,29 @@ export const updateKey = async (
   }
 };
 
+export const getKey = async (request: FastifyRequest, reply: FastifyReply) => {
+  try {
+    const { keyId } = request.params as { keyId: string };
+    const userId = request.user?.id;
+    const key = await apiKeyController.getKeyById(Number(keyId), userId!);
+    return reply.code(200).send(key);
+  } catch (error) {
+    throw error;
+  }
+};
 export const deleteKey = async (
   request: FastifyRequest,
   reply: FastifyReply,
 ) => {
   try {
     const userId = request.user?.id;
-    if (!userId) {
-      throw new BadRequestError("Unauthorized");
-    }
+
     const { keyId } = request.params as { keyId: string };
-    await apiKeyController.deleteKey(Number(keyId), userId);
+    await apiKeyController.deleteKey(Number(keyId), userId!);
     return reply.code(200).send({
       success: true,
       message: "API key revoked successfully",
-      keyId: Number(keyId),
     });
-  } catch (error) {
-    throw error;
-  }
-};
-
-export const getKey = async (request: FastifyRequest, reply: FastifyReply) => {
-  try {
-    const { keyId } = request.params as { keyId: string };
-    const userId = request.user?.id;
-    if (!userId) {
-      throw new BadRequestError("Unauthorized");
-    }
-    const key = await apiKeyController.getKeyById(Number(keyId), userId);
-    if (!key) {
-      throw new BadRequestError("API key not found");
-    }
-    return reply.code(200).send(key);
   } catch (error) {
     throw error;
   }

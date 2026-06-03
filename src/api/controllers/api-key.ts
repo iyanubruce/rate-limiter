@@ -15,18 +15,23 @@ const redis = new Redis(config.redis);
 
 export async function listKeys(data: ListKeysInterface, userId: number) {
   const queryOptions = parseWhereQueryForListApiKeys(data, userId);
-
+  console.log(data.page);
   const { keys, count } = await apiKeyRepository.listAndCountKeys(queryOptions);
+
+  const safeKeys = keys.map((key) => {
+    const { keyHash, ...safeKey } = key;
+    return safeKey;
+  });
 
   const totalPages = Math.ceil(count / queryOptions.limit);
   const hasMore = queryOptions.page < totalPages;
 
   return {
-    keys,
+    keys: safeKeys,
     pagination: {
       total: count,
       limit: data.limit,
-      page: data.page,
+      page: data.page ?? 1,
       hasMore,
       nextPage: hasMore ? queryOptions.page + 1 : null,
       totalPages,
@@ -55,6 +60,7 @@ export async function createKey(data: CreateKeyInput, userId: number) {
     userId,
     name,
   );
+
   if (existing) {
     throw new BadRequestError("API key with this name already exists");
   }
@@ -75,7 +81,6 @@ export async function createKey(data: CreateKeyInput, userId: number) {
       },
       transaction,
     );
-
     await redis.client.setex(
       `key:${keyHash}`,
       3600, // 1 hour TTL (refreshed on use)
@@ -90,7 +95,6 @@ export async function createKey(data: CreateKeyInput, userId: number) {
 
     return inserted;
   });
-
   if (!newKey) {
     throw new InternalServerError("Failed to create API key");
   }
@@ -122,33 +126,40 @@ export async function updateKey(
   },
 ) {
   const existing = await apiKeyRepository.getApiKeyById(keyId);
-  if (!existing) {
-    throw new BadRequestError("API key not found");
-  }
-  if (existing.userId !== userId) {
-    throw new BadRequestError("Not authorized to update this key");
-  }
+  if (!existing) throw new BadRequestError("API key not found");
 
+  if (existing.userId !== userId)
+    throw new BadRequestError("Not authorized to update this key");
+
+  if (data.name) {
+    const duplicateKey = await apiKeyRepository.findApiKey(userId, data.name);
+    if (duplicateKey)
+      throw new BadRequestError("A key with this name already exists");
+  }
   const updated = await apiKeyRepository.updateApiKey(keyId, data);
   return updated;
 }
 
 export async function deleteKey(keyId: number, userId: number) {
   const existing = await apiKeyRepository.getApiKeyById(keyId);
-  if (!existing) {
-    throw new BadRequestError("API key not found");
-  }
-  if (existing.userId !== userId) {
+  if (!existing) throw new BadRequestError("API key not found");
+
+  if (existing.userId !== userId)
     throw new BadRequestError("Not authorized to delete this key");
-  }
-
-  const revoked = await apiKeyRepository.revokeApiKey(keyId);
-
-  await redis.client.del(`key:${existing.keyHash}`);
-
+  if (existing.revokedAt) throw new BadRequestError("Key already deleted");
+  const revoked = await db().transaction(async (transaction) => {
+    const revokedKey = await apiKeyRepository.revokeApiKey(keyId);
+    await redis.client.del(`key:${existing.keyHash}`);
+    return revokedKey;
+  });
   return revoked;
 }
 
 export async function getKeyById(keyId: number, userId: number) {
-  return await apiKeyRepository.getApiKeyByIdAndUserId(keyId, userId);
+  const key = await apiKeyRepository.getApiKeyByIdAndUserId(keyId, userId);
+  if (!key) {
+    throw new BadRequestError("API key not found");
+  }
+  const { keyHash, ...safeKey } = key;
+  return safeKey;
 }

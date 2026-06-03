@@ -9,7 +9,6 @@ export const validateAccessToken = async (
   req: FastifyRequest,
   reply: FastifyReply,
 ) => {
-  console.log("reached");
   const token = req.headers["authorization"]?.split(" ")[1];
 
   if (!token) {
@@ -18,7 +17,7 @@ export const validateAccessToken = async (
 
   try {
     const decodedToken = JWT.verify(token);
-    const user = await userRepository.findById(decodedToken.userId);
+    const user = await userRepository.findById(decodedToken.id);
 
     if (!user) {
       throw new NotAuthorizedError("Unauthorized");

@@ -37,33 +37,33 @@ export const listKeysSchema = {
       search: { type: "string", maxLength: 50 }, // Search by name/description
     },
   },
-  response: {
-    200: {
-      type: "object",
-      required: ["keys", "pagination"],
-      properties: {
-        keys: {
-          type: "array",
-          items: {
-            type: "object",
-            properties: {
-              ...apiKeyBaseSchema.properties,
-            },
-          },
-        },
-        pagination: {
-          type: "object",
-          required: ["total", "limit", "offset", "hasMore"],
-          properties: {
-            total: { type: "integer" },
-            limit: { type: "integer" },
-            offset: { type: "integer" },
-            hasMore: { type: "boolean" },
-          },
-        },
-      },
-    },
-  },
+  // response: {
+  //   200: {
+  //     type: "object",
+  //     required: ["keys", "pagination"],
+  //     properties: {
+  //       keys: {
+  //         type: "array",
+  //         items: {
+  //           type: "object",
+  //           properties: {
+  //             ...apiKeyBaseSchema.properties,
+  //           },
+  //         },
+  //       },
+  //       pagination: {
+  //         type: "object",
+  //         required: ["total", "limit", "offset", "hasMore"],
+  //         properties: {
+  //           total: { type: "integer" },
+  //           limit: { type: "integer" },
+  //           offset: { type: "integer" },
+  //           hasMore: { type: "boolean" },
+  //         },
+  //       },
+  //     },
+  //   },
+  // },
 };
 
 export const createKeySchema = {
@@ -117,7 +117,7 @@ export const createKeySchema = {
         },
         ...apiKeyBaseSchema.properties,
       },
-      required: ["apiKey", "keyId", "name", "keyPrefix", "createdAt"],
+      required: ["apiKey", "keyId", "name", "createdAt"],
     },
     400: { $ref: "errors#/$defs/badRequest" },
     409: { $ref: "errors#/$defs/conflict" }, // Duplicate name
@@ -174,7 +174,6 @@ export const deleteKeySchema = {
       properties: {
         success: { type: "boolean" },
         message: { type: "string" },
-        keyId: { type: "integer" },
       },
     },
     404: { $ref: "errors#/$defs/notFound" },

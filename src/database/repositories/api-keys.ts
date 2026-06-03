@@ -1,5 +1,5 @@
 import { eq, count as countHelper, isNull, and } from "drizzle-orm";
-import { db } from "../../config/database";
+import { DatabaseClient, db } from "../../config/database";
 import {
   apiKeys,
   type ApiKeyInsert,

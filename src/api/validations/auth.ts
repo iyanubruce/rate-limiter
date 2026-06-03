@@ -1,5 +1,3 @@
-import { format } from "winston";
-
 export const registerSchema = {
   body: {
     type: "object",
@@ -44,15 +42,5 @@ export const refreshTokenSchema = {
     properties: {
       refreshToken: { type: "string" },
     },
-  },
-  response: {
-    200: {
-      type: "object",
-      properties: {
-        token: { type: "string" },
-        expiresIn: { type: "integer" },
-      },
-    },
-    401: { $ref: "errors#/unauthorized" },
   },
 };

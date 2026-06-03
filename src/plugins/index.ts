@@ -6,9 +6,16 @@ import swagger from "@fastify/swagger";
 import swaggerUi from "@fastify/swagger-ui";
 import compress from "@fastify/compress";
 import config from "../config/env";
+import fp from "fastify-plugin";
 import logger from "../utils/logger";
+import { errorSchemas } from "../api/validations/error";
 
 export async function registerPlugins(app: FastifyInstance) {
+  await app.register(
+    fp(async (instance) => {
+      instance.addSchema(errorSchemas);
+    }),
+  );
   // Compression
   await app.register(compress, {
     global: true,

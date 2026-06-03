@@ -9,6 +9,7 @@ export const validateAccessToken = async (
   req: FastifyRequest,
   reply: FastifyReply,
 ) => {
+  console.log("reached");
   const token = req.headers["authorization"]?.split(" ")[1];
 
   if (!token) {

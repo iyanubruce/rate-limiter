@@ -15,6 +15,13 @@
       "when": 1780427087069,
       "tag": "0001_sloppy_terrax",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1780481135600,
+      "tag": "0002_dapper_tombstone",
+      "breakpoints": true
     }
   ]
 }

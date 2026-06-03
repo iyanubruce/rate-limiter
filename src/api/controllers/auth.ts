@@ -3,7 +3,7 @@ import JWT from "../../helpers/jwt";
 import { db } from "../../config/database";
 import { BadRequestError } from "../../error";
 import bcrypt from "bcrypt";
-
+import config from "../../config/env";
 const userRepository = new UserRepository(db());
 
 export const register = async (
@@ -74,8 +74,11 @@ export const login = async (email: string, password: string) => {
 };
 
 export const refresh = async (refreshToken: string) => {
+  console.log("reached");
   const decoded = JWT.verify(refreshToken);
-  const user = await userRepository.findById(decoded.userId);
+  console.log(decoded);
+  const user = await userRepository.findById(decoded.id);
+
   if (!user) {
     throw new BadRequestError("Invalid refresh token");
   }
@@ -84,5 +87,5 @@ export const refresh = async (refreshToken: string) => {
     email: user.email,
     role: user.role,
   });
-  return { token, expiresIn: 3600 };
+  return { token, expiresIn: config.jwt.expiresIn };
 };

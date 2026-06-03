@@ -7,11 +7,9 @@ import {
   timestamp,
   pgEnum,
 } from "drizzle-orm/pg-core";
-<<<<<<< HEAD
 
 export const userRoleEnum = pgEnum("user_role", ["admin", "user"]);
 export type userRole = (typeof userRoleEnum.enumValues)[number];
-=======
 import { apiKeys } from "./api-keys";
 import { rateLimitRules } from "./rate-limit-rules";
 import {
@@ -20,7 +18,6 @@ import {
   type InferInsertModel,
 } from "drizzle-orm";
 export const roleEnum = pgEnum("user_role", ["admin", "user"]);
->>>>>>> be75dedc8e052a84ca9865bd6ff9db69f424cc9a
 
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),

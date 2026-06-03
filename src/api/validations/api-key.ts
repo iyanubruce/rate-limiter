@@ -25,6 +25,7 @@ export const apiKeyBaseSchema = {
 export const listKeysSchema = {
   querystring: {
     type: "object",
+    additionalProperties: false,
     properties: {
       limit: { type: "integer", default: 20, minimum: 1, maximum: 100 },
       offset: { type: "integer", default: 0, minimum: 0 },
@@ -39,10 +40,20 @@ export const listKeysSchema = {
   response: {
     200: {
       type: "object",
+      required: ["keys", "pagination"],
       properties: {
-        keys: { type: "array", items: { $ref: "apiKeyBaseSchema" } },
+        keys: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              ...apiKeyBaseSchema.properties,
+            },
+          },
+        },
         pagination: {
           type: "object",
+          required: ["total", "limit", "offset", "hasMore"],
           properties: {
             total: { type: "integer" },
             limit: { type: "integer" },
@@ -108,8 +119,8 @@ export const createKeySchema = {
       },
       required: ["apiKey", "keyId", "name", "keyPrefix", "createdAt"],
     },
-    400: { $ref: "errors#/badRequest" },
-    409: { $ref: "errors#/conflict" }, // Duplicate name
+    400: { $ref: "errors#/$defs/badRequest" },
+    409: { $ref: "errors#/$defs/conflict" }, // Duplicate name
   },
 };
 
@@ -146,8 +157,8 @@ export const updateKeySchema = {
   },
   response: {
     200: { type: "object", properties: { ...apiKeyBaseSchema.properties } },
-    404: { $ref: "errors#/notFound" },
-    403: { $ref: "errors#/forbidden" }, // Key belongs to another tenant
+    404: { $ref: "errors#/$defs/notFound" },
+    403: { $ref: "errors#/$defs/forbidden" }, // Key belongs to another tenant
   },
 };
 
@@ -166,7 +177,15 @@ export const deleteKeySchema = {
         keyId: { type: "integer" },
       },
     },
-    404: { $ref: "errors#/notFound" },
-    403: { $ref: "errors#/forbidden" },
+    404: { $ref: "errors#/$defs/notFound" },
+    403: { $ref: "errors#/$defs/forbidden" },
+  },
+};
+
+export const getKeySchema = {
+  params: {
+    type: "object",
+    required: ["keyId"],
+    properties: { keyId: { type: "integer" } },
   },
 };

@@ -1,4 +1,4 @@
-import type { RedisClient } from "../services/redis";
+import RedisClient from "../services/redis";
 import config from "../config/env";
 import { registerRoutes } from "../api/routes";
 import type { DatabaseClient } from "../config/database";

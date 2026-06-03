@@ -74,7 +74,6 @@ export const login = async (email: string, password: string) => {
 };
 
 export const refresh = async (refreshToken: string) => {
-  console.log("reached");
   const decoded = JWT.verify(refreshToken);
   console.log(decoded);
   const user = await userRepository.findById(decoded.id);

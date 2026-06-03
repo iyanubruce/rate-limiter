@@ -2,6 +2,7 @@ import Redis from "../../services/redis";
 import config from "../../config/env";
 import { createJsonResponse, createErrorResponse } from "../utils/response";
 import { createHash } from "crypto";
+import { findApiKey } from "./db";
 import type { BunRequest } from "bun";
 
 const redis = new Redis(config.redis);
@@ -19,7 +20,7 @@ interface KeyMetadata {
       { requestsPerSecond: number; burstSize?: number }
     >;
   };
-  expiresAt?: string;
+  expiresAt?: string | null;
   revokedAt: null | string;
 }
 
@@ -27,53 +28,71 @@ export const createCheckHandler = () => {
   const defaultQuota = config.rateLimit.defaultQuota;
   const defaultWindow = config.rateLimit.defaultWindow;
 
-  return async (req: BunRequest): Promise<Response> => {
+  return async (req: Request): Promise<Response> => {
+    // Standard Bun Request object
     try {
-      const apiKey = (req.headers as any).get
-        ? (req.headers as any).get("x-api-key")
-        : (req.headers as unknown as Record<string, string>)["x-api-key"];
+      // 🟢 Fix Bun header retrieval
+      const apiKey = req.headers.get("x-api-key");
 
       if (!apiKey) {
         return createErrorResponse("Missing x-api-key header", 400);
       }
+
       let quota = defaultQuota;
       let window = defaultWindow;
       let strategy = config.rateLimit.defaultStrategy;
+      let keyMetadata: KeyMetadata;
 
-      if (apiKey) {
-        const keyHash = createHash("sha256").update(apiKey).digest("hex");
-        const redisKey = `key:${keyHash}`;
-        const keyMetadataStr = await redis.client.get(redisKey);
+      const keyHash = createHash("sha256").update(apiKey).digest("hex");
+      const redisKey = `key:${keyHash}`;
 
-        if (keyMetadataStr) {
-          try {
-            const keyMetadata: KeyMetadata = JSON.parse(keyMetadataStr);
+      // Try to read metadata cache from Redis
+      const keyMetadataStr = await redis.client.get(redisKey);
 
-            if (keyMetadata.rateLimitOverride) {
-              quota =
-                keyMetadata.rateLimitOverride.requestsPerSecond || defaultQuota;
-              window = keyMetadata.rateLimitOverride.windowMs
-                ? keyMetadata.rateLimitOverride.windowMs / 1000
-                : defaultWindow;
-              strategy =
-                (keyMetadata.rateLimitOverride.strategy as any) || strategy;
-            }
-          } catch (parseError) {
-            return createErrorResponse("Invalid API key metadata", 400);
-          }
-        } else {
-          return createErrorResponse("API key not found", 404);
+      if (keyMetadataStr) {
+        // 🟢 CACHE HIT
+        keyMetadata = JSON.parse(keyMetadataStr);
+        // Reset sliding 1-hour expiration safely in background
+        redis.client.expire(redisKey, 3600).catch(() => {});
+      } else {
+        const databaseKey = await findApiKey(keyHash);
+
+        if (!databaseKey) {
+          return createErrorResponse("API key not found or revoked", 401);
         }
+
+        // Structure metadata for caching
+        keyMetadata = {
+          userId: databaseKey.userId,
+          scopes: databaseKey.scopes || [],
+          rateLimitOverride: databaseKey.rateLimitOverride as any,
+          expiresAt: databaseKey.expiresAt
+            ? databaseKey.expiresAt.toISOString()
+            : null,
+          revokedAt: null,
+        };
+
+        // Seed Redis so the next client execution is instantaneous
+        await redis.client.setex(redisKey, 3600, JSON.stringify(keyMetadata));
       }
 
-      const key = `ratelimit:${apiKey}`;
+      // Extract custom configuration overrides
+      if (keyMetadata.rateLimitOverride) {
+        quota = keyMetadata.rateLimitOverride.requestsPerSecond || defaultQuota;
+        window = keyMetadata.rateLimitOverride.windowMs
+          ? keyMetadata.rateLimitOverride.windowMs / 1000
+          : defaultWindow;
+        strategy = (keyMetadata.rateLimitOverride.strategy as any) || strategy;
+      }
+
+      const rateLimitKey = `ratelimit:${keyHash}`;
       const now = Date.now();
 
       const currentWindow = Math.floor(now / (window * 1000));
-      const redisKey = `${key}:${currentWindow}`;
-      console.log(redisKey, quota, window, strategy);
+      const executionKey = `${rateLimitKey}:${currentWindow}`;
+
       const result = await redis.checkRateLimit(
-        redisKey,
+        executionKey,
         quota,
         window,
         strategy as any,
@@ -92,6 +111,7 @@ export const createCheckHandler = () => {
         "X-RateLimit-Remaining": String(result.remaining),
       });
     } catch (err) {
+      console.error("Traffic Handler Error: ", err);
       return createErrorResponse("Internal Server Error", 500);
     }
   };

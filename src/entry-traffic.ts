@@ -2,6 +2,8 @@ import { Redis } from "ioredis";
 import { createTrafficServer } from "./trafficServer";
 import logger from "./utils/logger";
 import config from "./config/env";
+import { trafficDb as db } from "./config/traffic-database"; // Adjust path to your Drizzle DB instance
+import { sql } from "drizzle-orm";
 
 async function startTrafficServer() {
   try {
@@ -18,6 +20,9 @@ async function startTrafficServer() {
         reject(err);
       });
     });
+
+    await db.execute(sql`SELECT 1`);
+    logger.info("✓ Database connected successfully");
 
     const server = createTrafficServer();
     Bun.serve(server);

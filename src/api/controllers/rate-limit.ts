@@ -109,15 +109,6 @@ export async function getQuotaStatus(key: string, strategy: string) {
   };
 }
 
-export async function validateApiKey(apiKey: string) {
-  const keyHash = createHash("sha256").update(apiKey).digest("hex");
-  const keyRecord = await db().query.apiKeys.findFirst({
-    where: and(eq(apiKeys.keyHash, keyHash), isNull(apiKeys.revokedAt)),
-    columns: { id: true, userId: true, tenantId: true, scopes: true },
-  });
-  return keyRecord;
-}
-
 export async function getRuleById(ruleId: number, userId: number) {
   const rule = await ruleRepository.getRuleById(ruleId);
   if (!rule || rule.userId !== userId) {
@@ -175,6 +166,7 @@ export async function updateQuotaForApiKey(
     requestsPerSecond?: number;
     windowSeconds?: number;
   };
+
   const rateLimitOverride = {
     requestsPerSecond:
       data.limit ||

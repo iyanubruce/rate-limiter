@@ -1,3 +1,5 @@
+import { checkRateLimitBody } from "./validator";
+import { z } from "zod";
 export interface KeyMetadata {
   userId: number;
   scopes: string[];
@@ -14,3 +16,5 @@ export interface KeyMetadata {
   expiresAt?: string | null;
   revokedAt: null | string;
 }
+
+export type CheckRateLimitInput = z.infer<typeof checkRateLimitBody>;

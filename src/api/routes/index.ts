@@ -45,10 +45,10 @@ export async function registerRoutes(app: FastifyInstance) {
     },
   );
 
-  await app.register(healthRoutes, { prefix: "/health" });
-  await app.register(authRoutes, { prefix: "/auth" });
+  await app.register(healthRoutes, { prefix: "/health" }); //needs
+  await app.register(authRoutes, { prefix: "/auth" }); //needs
   await app.register(rateLimitRoutes, { prefix: "/rate-limit" });
-  await app.register(apiKeyRoutes, { prefix: "/api-keys" });
+  await app.register(apiKeyRoutes, { prefix: "/api-keys" }); //needs
   await app.register(analyticsRoutes, { prefix: "/analytics" });
   await app.register(strategiesRoutes, { prefix: "/strategies" });
   await app.register(alertsRoutes, { prefix: "/alerts" });

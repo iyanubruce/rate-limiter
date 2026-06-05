@@ -1,7 +1,5 @@
-import { trafficDb } from "../../config/traffic-database";
-
-import { apiKeys } from "../../database/models/api-keys";
-
+import { trafficDb } from "../../../config/traffic-database";
+import { apiKeys } from "../../../database/models/api-keys";
 import { eq, and, isNull } from "drizzle-orm";
 
 export async function findApiKey(keyHash: string) {

@@ -1,24 +1,22 @@
-import Redis from "../../services/redis";
-import config from "../../config/env";
-import { createJsonResponse, createErrorResponse } from "../utils/response";
+import Redis from "../../../services/redis";
+import config from "../../../config/env";
+import { createJsonResponse, createErrorResponse } from "../../utils/response";
 import { createHash } from "crypto";
 import { findApiKey } from "./db";
+import logger from "../../../utils/logger";
 import type { BunRequest } from "bun";
-import type { KeyMetadata } from "./types";
+import type { KeyMetadata, CheckRateLimitInput } from "./types";
+
 const redis = new Redis(config.redis);
 
+const defaultQuota = config.rateLimit.defaultQuota;
+const defaultWindow = config.rateLimit.defaultWindow;
+
 export const createCheckHandler = () => {
-  const defaultQuota = config.rateLimit.defaultQuota;
-  const defaultWindow = config.rateLimit.defaultWindow;
-
-  return async (req: BunRequest): Promise<Response> => {
+  return async (req: any): Promise<Response> => {
     try {
-      const apiKey = req.headers.get("x-api-key");
-
-      if (!apiKey) {
-        return createErrorResponse("Missing x-api-key header", 400);
-      }
-
+      const apiKey = req.headers.get("x-api-key")!;
+      const data: CheckRateLimitInput = req.body;
       let quota = defaultQuota;
       let window = defaultWindow;
       let strategy = config.rateLimit.defaultStrategy;
@@ -86,7 +84,7 @@ export const createCheckHandler = () => {
         "X-RateLimit-Remaining": String(result.remaining),
       });
     } catch (err) {
-      console.error("Traffic Handler Error: ", err);
+      logger.error("Traffic Handler Error: ", err);
       return createErrorResponse("Internal Server Error", 500);
     }
   };

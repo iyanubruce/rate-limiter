@@ -2,12 +2,13 @@ import Redis from "../../../services/redis";
 import config from "../../../config/env";
 import { createJsonResponse, createErrorResponse } from "../../utils/response";
 import { createHash } from "crypto";
-import { findApiKey } from "./db";
 import logger from "../../../utils/logger";
-import type { BunRequest } from "bun";
 import type { KeyMetadata, CheckRateLimitInput } from "./types";
-
+import { trafficDb } from "../../../config/traffic-database";
+import ApiKeyRepo from "../../../database/repositories/api-keys";
+import { ratelimitEventQueue } from "../../../jobs/queues/queue";
 const redis = new Redis(config.redis);
+const apiKeyRepo = new ApiKeyRepo(trafficDb);
 
 const defaultQuota = config.rateLimit.defaultQuota;
 const defaultWindow = config.rateLimit.defaultWindow;
@@ -17,6 +18,8 @@ export const createCheckHandler = () => {
     try {
       const apiKey = req.headers.get("x-api-key")!;
       const data: CheckRateLimitInput = req.body;
+      const { tenantId, identifier, endpoint, method, weight } = data;
+
       let quota = defaultQuota;
       let window = defaultWindow;
       let strategy = config.rateLimit.defaultStrategy;
@@ -31,13 +34,14 @@ export const createCheckHandler = () => {
         keyMetadata = JSON.parse(keyMetadataStr);
         redis.client.expire(redisKey, 3600).catch(() => {});
       } else {
-        const databaseKey = await findApiKey(keyHash);
+        const databaseKey = await apiKeyRepo.findApiKeyByKeyHash(keyHash);
 
         if (!databaseKey) {
           return createErrorResponse("API key not found or revoked", 401);
         }
 
         keyMetadata = {
+          id: databaseKey.id,
           userId: databaseKey.userId,
           scopes: databaseKey.scopes || [],
           rateLimitOverride: databaseKey.rateLimitOverride as any,
@@ -58,19 +62,38 @@ export const createCheckHandler = () => {
         strategy = (keyMetadata.rateLimitOverride.strategy as any) || strategy;
       }
 
-      const rateLimitKey = `ratelimit:${keyHash}`;
+      const routePath = endpoint && method ? `:${method}:${endpoint}` : "";
+      const rateLimitKey = `ratelimit:${tenantId}:${identifier}${routePath}`;
       const now = Date.now();
 
-      const currentWindow = Math.floor(now / (window * 1000));
-      const executionKey = `${rateLimitKey}:${currentWindow}`;
+      let executionKey = rateLimitKey;
+      if (strategy === "fixed_window") {
+        const currentWindow = Math.floor(now / (window * 1000));
+        executionKey = `${rateLimitKey}:${currentWindow}`;
+      }
 
       const result = await redis.checkRateLimit(
         executionKey,
         quota,
         window,
-        strategy as any,
+        strategy,
+        weight,
       );
 
+      ratelimitEventQueue.add("log-event", {
+        time: new Date(),
+        tenantId,
+        apiKeyId: keyMetadata.id,
+        ipAddress: identifier,
+        endpoint: endpoint || "/",
+        method: method || "GET",
+        userAgent: req.headers.get("user-agent") || "UNKNOWN",
+        statusCode: result.allowed ? 200 : 429,
+        requestDurationMs: Date.now() - now,
+        responseSize: 0,
+        isBlocked: !result.allowed,
+        remainingQuota: result.remaining,
+      });
       const responsePayload = {
         allowed: result.allowed,
         remaining: result.remaining,

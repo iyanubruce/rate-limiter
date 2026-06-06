@@ -24,14 +24,16 @@ export async function loadLuaScript(filename: string): Promise<string> {
   return await file.text();
 }
 export async function loadAllLuaScripts(): Promise<Record<string, string>> {
-  const rateLimitScript = await loadLuaScript("rate-limit.lua");
+  // const rateLimitScript = await loadLuaScript("rate-limit.lua");
+  const fixedWindowScript = await loadLuaScript("fixed-window.lua");
   const tokenBucketScript = await loadLuaScript("token-bucket.lua");
   const slidingWindowScript = await loadLuaScript("sliding-window.lua");
   const leakyBucketScript = await loadLuaScript("leaky-bucket.lua");
   return {
-    rateLimit: rateLimitScript,
+    // rateLimit: rateLimitScript,
     tokenBucket: tokenBucketScript,
     slidingWindow: slidingWindowScript,
     leakyBucket: leakyBucketScript,
+    fixedWindow: fixedWindowScript,
   };
 }

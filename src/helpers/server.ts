@@ -35,7 +35,6 @@ export default function buildApp(
   app.setErrorHandler((error, request, reply) => {
     const isCustomError = error instanceof ErrorHandler;
     const baseError = error as Error;
-    console.log("isCustomError", isCustomError);
     const statusCode = isCustomError ? error.getHttpCode() : 500;
     const message = isCustomError
       ? error.message

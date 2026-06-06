@@ -203,15 +203,20 @@ export default class RedisClient {
     strategy:
       | "token_bucket"
       | "sliding_window"
-      | "leaky_bucket" = "token_bucket",
+      | "leaky_bucket"
+      | "fixed_window" = "token_bucket",
+    weight: number,
   ): Promise<{ allowed: boolean; remaining: number; resetAt: number }> {
     switch (strategy) {
       case "token_bucket":
-        return this.tokenBucket(key, limit, windowSeconds);
+        return this.tokenBucket(key, limit, windowSeconds, weight);
       case "sliding_window":
-        return this.slidingWindow(key, limit, windowSeconds);
+        return this.slidingWindow(key, limit, windowSeconds, weight);
       case "leaky_bucket":
-        return this.leakyBucket(key, limit, windowSeconds);
+        return this.leakyBucket(key, limit, windowSeconds, weight);
+      case "fixed_window":
+        console.log(LUA_SCRIPTS);
+        return this.fixedWindowRateLimit(key, limit, windowSeconds, weight);
       default:
         throw new Error(`Unknown strategy: ${strategy}`);
     }
@@ -221,14 +226,19 @@ export default class RedisClient {
     key: string,
     limit: number,
     windowSeconds: number,
+    weight: number,
   ): Promise<{ allowed: boolean; remaining: number; resetAt: number }> {
     const now = Date.now();
     const result = (await this.evalWithFallback(
       "tokenBucket",
       [key],
-      [limit.toString(), windowSeconds.toString(), now.toString()],
+      [
+        limit.toString(),
+        windowSeconds.toString(),
+        now.toString(),
+        weight.toString(),
+      ],
     )) as [number, number, number];
-
     return {
       allowed: result[0] === 1,
       remaining: result[1] ?? 0,
@@ -240,6 +250,7 @@ export default class RedisClient {
     key: string,
     limit: number,
     windowSeconds: number,
+    weight: number,
   ): Promise<{ allowed: boolean; remaining: number; resetAt: number }> {
     const now = Date.now();
     const windowMs = windowSeconds * 1000;
@@ -253,6 +264,7 @@ export default class RedisClient {
         windowStart.toString(),
         now.toString(),
         windowMs.toString(),
+        weight.toString(),
       ],
     )) as [number, number, number];
 
@@ -267,6 +279,7 @@ export default class RedisClient {
     key: string,
     limit: number,
     windowSeconds: number,
+    weight: number,
   ): Promise<{ allowed: boolean; remaining: number; resetAt: number }> {
     const now = Date.now();
     const leakRate = limit / windowSeconds;
@@ -274,7 +287,12 @@ export default class RedisClient {
     const result = (await this.evalWithFallback(
       "leakyBucket",
       [key],
-      [limit.toString(), leakRate.toString(), now.toString()],
+      [
+        limit.toString(),
+        leakRate.toString(),
+        now.toString(),
+        weight.toString(),
+      ],
     )) as [number, number, number];
 
     if (!result) throw new Error("No result");
@@ -286,27 +304,55 @@ export default class RedisClient {
     };
   }
 
+  // async fixedWindowRateLimit(
+  //   key: string,
+  //   timeWindow: number,
+  //   max: number,
+  //   continueExceeding: boolean,
+  //   exponentialBackoff: boolean,
+  // ): Promise<{ current: number; timeWindow: number }> {
+  //   const result = (await this.evalWithFallback(
+  //     "rateLimit",
+  //     [key],
+  //     [
+  //       timeWindow.toString(),
+  //       max.toString(),
+  //       continueExceeding.toString(),
+  //       exponentialBackoff.toString(),
+  //     ],
+  //   )) as [number, number];
+
+  //   return {
+  //     current: result[0] ?? 0,
+  //     timeWindow: result[1] ?? 0,
+  //   };
+  // }
+
   async fixedWindowRateLimit(
     key: string,
-    timeWindow: number,
-    max: number,
-    continueExceeding: boolean,
-    exponentialBackoff: boolean,
-  ): Promise<{ current: number; timeWindow: number }> {
+    limit: number,
+    windowSeconds: number,
+    weight: number = 1,
+  ): Promise<{ allowed: boolean; remaining: number; resetAt: number }> {
+    const now = Date.now();
+
+    // The script expects: KEYS[1] = key
+    // ARGV = [limit, windowSeconds, now, weight]
     const result = (await this.evalWithFallback(
-      "rateLimit",
+      "fixedWindow", // Ensure this matches your script registration name
       [key],
       [
-        timeWindow.toString(),
-        max.toString(),
-        continueExceeding.toString(),
-        exponentialBackoff.toString(),
+        limit.toString(),
+        windowSeconds.toString(),
+        now.toString(),
+        weight.toString(),
       ],
-    )) as [number, number];
+    )) as [number, number, number];
 
     return {
-      current: result[0] ?? 0,
-      timeWindow: result[1] ?? 0,
+      allowed: result[0] === 1,
+      remaining: result[1] ?? 0,
+      resetAt: result[2] ?? now + windowSeconds * 1000,
     };
   }
 

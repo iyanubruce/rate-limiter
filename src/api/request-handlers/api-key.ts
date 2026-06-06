@@ -32,7 +32,6 @@ export const createKey = async (
       userId!,
     );
     return reply.code(201).send(data);
-    console.log("data recieved", data);
   } catch (error) {
     throw error;
   }

@@ -1,7 +1,8 @@
 local key = KEYS[1]
 local capacity = tonumber(ARGV[1])
-local leak_rate = tonumber(ARGV[2])
-local now = tonumber(ARGV[3])
+local leak_rate = tonumber(ARGV[2]) -- leaks per second
+local now = tonumber(ARGV[3]) -- millisecond timestamp
+local weight = tonumber(ARGV[4]) or 1
 
 local bucket = redis.call('HMGET', key, 'water', 'last_leak')
 local water = tonumber(bucket[1]) or 0
@@ -12,15 +13,17 @@ local leaked = time_passed * leak_rate
 water = math.max(0, water - leaked)
 
 local allowed = 0
-if water < capacity then
-  water = water + 1
+if water + weight <= capacity then
+  water = water + weight
   allowed = 1
 end
 
 redis.call('HMSET', key, 'water', water, 'last_leak', now)
-redis.call('EXPIRE', key, capacity / leak_rate)
 
-local remaining = math.floor(capacity - water)
+local time_to_leak_dry = capacity / leak_rate
+redis.call('EXPIRE', key, math.ceil(time_to_leak_dry * 2))
+
+local remaining = math.max(0, math.floor(capacity - water))
 local reset_at = now + ((water / leak_rate) * 1000)
 
-return {allowed, remaining, reset_at}
+return {allowed, remaining, math.ceil(reset_at)}

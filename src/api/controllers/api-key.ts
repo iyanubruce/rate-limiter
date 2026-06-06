@@ -15,7 +15,6 @@ const redis = new Redis(config.redis);
 
 export async function listKeys(data: ListKeysInterface, userId: number) {
   const queryOptions = parseWhereQueryForListApiKeys(data, userId);
-  console.log(data.page);
   const { keys, count } = await apiKeyRepository.listAndCountKeys(queryOptions);
 
   const safeKeys = keys.map((key) => {
@@ -85,6 +84,7 @@ export async function createKey(data: CreateKeyInput, userId: number) {
       `key:${keyHash}`,
       3600, // 1 hour TTL (refreshed on use)
       JSON.stringify({
+        apiKeyId: inserted!.id,
         userId,
         scopes,
         rateLimitOverride,

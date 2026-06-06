@@ -1,6 +1,7 @@
 import { z } from "zod";
 export const checkRateLimitBody = z
   .object({
+    tenantId: z.string().min(1, "Tenant ID is required"),
     identifier: z.string().min(1, "Identifier is required"),
     endpoint: z.string().optional(),
     method: z.string().optional(),

@@ -11,7 +11,6 @@ import {
 export const userRoleEnum = pgEnum("user_role", ["admin", "user"]);
 export type userRole = (typeof userRoleEnum.enumValues)[number];
 import { apiKeys } from "./api-keys";
-import { rateLimitRules } from "./rate-limit-rules";
 import {
   relations,
   type InferSelectModel,
@@ -36,7 +35,6 @@ export const users = pgTable("users", {
 
 export const usersRelations = relations(users, ({ many }) => ({
   apiKeys: many(apiKeys),
-  rateLimitRules: many(rateLimitRules),
 }));
 
 export type User = InferSelectModel<typeof users>;

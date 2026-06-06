@@ -64,7 +64,6 @@ export const login = async (email: string, password: string) => {
     throw new BadRequestError(`Invalid credentials.`);
 
   const { password: userPassword, google_id, ...safeUser } = user;
-  console.log(safeUser);
   const token = JWT.encode({
     id: user.id,
     email: user.email,
@@ -75,7 +74,6 @@ export const login = async (email: string, password: string) => {
 
 export const refresh = async (refreshToken: string) => {
   const decoded = JWT.verify(refreshToken);
-  console.log(decoded);
   const user = await userRepository.findById(decoded.id);
 
   if (!user) {

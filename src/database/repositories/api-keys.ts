@@ -1,11 +1,6 @@
 import { eq, count as countHelper, isNull, and } from "drizzle-orm";
-import { DatabaseClient, db } from "../../config/database";
-import {
-  apiKeys,
-  type ApiKeyInsert,
-  type ApiKey,
-  type SafeApiKey,
-} from "../models/api-keys";
+import { db } from "../../config/database";
+import { apiKeys, type ApiKeyInsert, type ApiKey } from "../models/api-keys";
 import type { ListKeysWhereClause } from "../../interfaces/api-key";
 
 type Transaction = Parameters<
@@ -34,6 +29,13 @@ export default class ApiKeyRepository {
         eq(apiKeys.name, name),
         isNull(apiKeys.revokedAt),
       ),
+    });
+  }
+
+  async findApiKeyByKeyHash(keyHash: string, transaction?: Transaction) {
+    const client = transaction || this.db;
+    return await client.query.apiKeys.findFirst({
+      where: and(eq(apiKeys.keyHash, keyHash), isNull(apiKeys.revokedAt)),
     });
   }
   async listAndCountKeys(

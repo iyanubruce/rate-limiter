@@ -1,6 +1,7 @@
 import { checkRateLimitBody } from "./validator";
 import { z } from "zod";
 export interface KeyMetadata {
+  id: number;
   userId: number;
   scopes: string[];
   rateLimitOverride?: {

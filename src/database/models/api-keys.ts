@@ -7,11 +7,7 @@ import {
   jsonb,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
-import {
-  relations,
-  type InferSelectModel,
-  type InferInsertModel,
-} from "drizzle-orm";
+import { type InferSelectModel, type InferInsertModel } from "drizzle-orm";
 import { users } from "./user";
 // types/rate-limit.ts
 export interface RateLimitOverride {

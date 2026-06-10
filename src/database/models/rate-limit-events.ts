@@ -12,12 +12,16 @@ import {
   relations,
 } from "drizzle-orm";
 import { apiKeys } from "./api-keys";
+import { tenants } from "./tenants";
 
 export const rateLimitEvents = pgTable("rate_limit_events", {
   time: timestamp("time", { precision: 6, withTimezone: true })
     .notNull()
     .defaultNow(),
-  tenantId: varchar("tenant_id", { length: 255 }).notNull(),
+  tenantId: varchar("tenant_id", { length: 32 })
+    .notNull()
+    .references(() => tenants.id)
+    .default("org_1"),
   apiKeyId: integer("api_key_id")
     .references(() => apiKeys.id)
     .notNull(),

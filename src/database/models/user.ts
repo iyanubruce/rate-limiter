@@ -16,16 +16,20 @@ import {
   type InferSelectModel,
   type InferInsertModel,
 } from "drizzle-orm";
+import { tenants } from "./tenants";
 export const roleEnum = pgEnum("user_role", ["admin", "user"]);
 
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
   email: varchar("email", { length: 255 }).notNull().unique(),
-  google_id: varchar("google_id", { length: 255 }).unique(),
-  password: text("password"),
+  password: text("password").notNull(),
   role: userRoleEnum("role").notNull().default("admin"),
-  first_name: varchar("first_name", { length: 255 }).notNull(),
-  last_name: varchar("last_name", { length: 255 }).notNull(),
+  tenantId: varchar("tenant_id", { length: 32 })
+    .notNull()
+    .references(() => tenants.id)
+    .default("org_1"),
+  firstName: varchar("first_name", { length: 255 }).notNull(),
+  lastName: varchar("last_name", { length: 255 }).notNull(),
   created_at: timestamp("created_at").notNull().defaultNow(),
   updated_at: timestamp("updated_at")
     .notNull()

@@ -1,4 +1,5 @@
-// schemas/apiKeys.ts
+import type { FastifySchema } from "fastify";
+
 export const apiKeyBaseSchema = {
   properties: {
     keyId: { type: "integer" },
@@ -22,7 +23,7 @@ export const apiKeyBaseSchema = {
   },
 };
 
-export const listKeysSchema = {
+export const listKeysSchema: FastifySchema = {
   querystring: {
     type: "object",
     additionalProperties: false,
@@ -66,7 +67,7 @@ export const listKeysSchema = {
   // },
 };
 
-export const createKeySchema = {
+export const createKeySchema: FastifySchema = {
   body: {
     type: "object",
     required: ["name"],
@@ -124,7 +125,7 @@ export const createKeySchema = {
   },
 };
 
-export const updateKeySchema = {
+export const updateKeySchema: FastifySchema = {
   params: {
     type: "object",
     required: ["keyId"],
@@ -162,7 +163,7 @@ export const updateKeySchema = {
   },
 };
 
-export const deleteKeySchema = {
+export const deleteKeySchema: FastifySchema = {
   params: {
     type: "object",
     required: ["keyId"],
@@ -181,7 +182,7 @@ export const deleteKeySchema = {
   },
 };
 
-export const getKeySchema = {
+export const getKeySchema: FastifySchema = {
   params: {
     type: "object",
     required: ["keyId"],

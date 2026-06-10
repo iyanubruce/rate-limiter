@@ -14,12 +14,6 @@ const authRoutes: FastifyPluginAsync = async (fastify) => {
     authHandler.registerHandler,
   );
 
-  fastify.post(
-    "/google-auth",
-    { schema: googleAuthSchema },
-    authHandler.googleAuthHandler,
-  );
-
   fastify.post("/login", { schema: loginSchema }, authHandler.loginHandler);
 
   fastify.post(

@@ -9,6 +9,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { type InferSelectModel, type InferInsertModel } from "drizzle-orm";
 import { users } from "./user";
+import { tenants } from "./tenants";
 // types/rate-limit.ts
 export interface RateLimitOverride {
   requestsPerSecond?: number; // Max sustained RPS
@@ -41,9 +42,11 @@ export const apiKeys = pgTable(
     userId: integer("user_id")
       .notNull()
       .references(() => users.id),
-    tenantId: integer("tenant_id"), // Optional: for org-level isolation
+    tenantId: varchar("tenant_id", { length: 32 })
+      .notNull()
+      .references(() => tenants.id)
+      .default("org_1"),
 
-    // 🏷️ Metadata & UX
     name: varchar("name", { length: 100 }).notNull(), // "Production App"
     description: varchar("description", { length: 255 }),
 

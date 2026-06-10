@@ -1,8 +1,6 @@
-// src/repositories/UserRepository.ts  (or wherever it lives)
-import { eq } from "drizzle-orm"; // ← import eq here (needed for v2 syntax)
+import { eq } from "drizzle-orm";
 import { db } from "../../config/database";
-import { users } from "../models"; // assuming ../models exports the users table
-import type { userRole } from "../models/user"; // import the enum type if needed
+import { users, type UserInsert, type User } from "../models/user";
 
 type Transaction = Parameters<
   Parameters<ReturnType<typeof db>["transaction"]>[0]
@@ -15,28 +13,12 @@ export default class UserRepository {
   }
 
   async createUser(
-    data: {
-      email: string;
-      password: string;
-      firstName: string;
-      lastName: string;
-      role?: userRole;
-    },
+    data: Omit<UserInsert, "googleId">,
     transaction?: Transaction,
   ) {
     const client = transaction || this.db;
     try {
-      const [newUser] = await client
-        .insert(users)
-        .values({
-          email: data.email,
-          role: data.role || "admin",
-          password: data.password,
-          first_name: data.firstName,
-          last_name: data.lastName,
-        })
-        .returning();
-
+      const [newUser] = await client.insert(users).values(data).returning();
       return newUser ?? null;
     } catch (err: any) {
       // Postgres unique violation code = 23505 (duplicate email)
@@ -46,63 +28,7 @@ export default class UserRepository {
       throw err;
     }
   }
-  async createGoogleUser(
-    googleId: string,
-    email: string,
-    firstName: string,
-    lastName: string,
-    role: userRole = "admin",
-  ) {
-    try {
-      const [newUser] = await this.db
-        .insert(users)
-        .values({
-          google_id: googleId,
-          email,
-          role,
-          first_name: firstName,
-          last_name: lastName,
-        })
-        .returning();
 
-      return newUser ?? null;
-    } catch (err: any) {
-      // Postgres unique violation code = 23505 (duplicate email)
-      if (err?.code === "23505") {
-        return null;
-      }
-      throw err;
-    }
-  }
-  async findOrCreateGoogleUser(
-    data: {
-      googleId: string;
-      email: string;
-      firstName: string;
-      lastName: string;
-      role?: userRole;
-    },
-    transaction?: Transaction,
-  ) {
-    const client = transaction || this.db;
-    const user = await this.getUserByEmail(data.email, transaction);
-    if (user) {
-      return user;
-    }
-
-    const [newUser] = await client
-      .insert(users)
-      .values({
-        email: data.email,
-        role: data.role || "admin",
-        first_name: data.firstName,
-        last_name: data.lastName,
-        password: "", // password is required in schema, setting empty or random for OAuth users
-      })
-      .returning();
-
-    return newUser ?? null;
-  }
   /**
    * Finds a user by email (case-sensitive).
    * @returns user object or null if not found

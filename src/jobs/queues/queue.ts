@@ -1,9 +1,9 @@
 // src/traffic/services/queue.ts
 import { Queue } from "bullmq";
 import config from "../../config/env";
-import type { RateLimitLogLogPayload } from "../../interfaces/rate-limit-events";
+import type { RateLimitLogPayload } from "../../interfaces/rate-limit-events";
 export const ratelimitEventQueue = new Queue<
-  RateLimitLogLogPayload,
+  RateLimitLogPayload,
   any,
   "log-event"
 >("analytics-logs", {

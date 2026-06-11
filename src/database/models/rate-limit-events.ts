@@ -46,5 +46,5 @@ export const rateLimitEventsRelations = relations(
   }),
 );
 
-export type RateLimitEvents = InferSelectModel<typeof rateLimitEvents>;
+export type RateLimitEvent = InferSelectModel<typeof rateLimitEvents>;
 export type RateLimitInsert = InferInsertModel<typeof rateLimitEvents>;

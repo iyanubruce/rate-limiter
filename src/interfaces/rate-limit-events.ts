@@ -1,4 +1,4 @@
-export interface RateLimitLogLogPayload {
+export interface RateLimitLogPayload {
   time: Date;
   tenantId: string;
   apiKeyId: number;

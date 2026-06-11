@@ -12,21 +12,20 @@ import { users } from "./user";
 import { tenants } from "./tenants";
 // types/rate-limit.ts
 export interface RateLimitOverride {
-  requestsPerSecond?: number; // Max sustained RPS
-  burstSize?: number; // Token bucket burst capacity
-  windowMs?: number; // Custom time window (override default)
-  strategy?: "token-bucket" | "sliding-window" | "fixed-window"; // Per-key algorithm
+  requestsPerSecond?: number;
+  burstSize?: number;
+  windowMs?: number;
+  strategy?: "token-bucket" | "sliding-window" | "fixed-window";
   endpoints?: Record<
     string,
     {
-      // Endpoint-specific overrides
       requestsPerSecond: number;
       burstSize?: number;
     }
   >;
-  priority?: number; // Rule evaluation order
-  expiresAt?: string; // ISO timestamp for temporary overrides
-  meta?: Record<string, any>; // Extensible metadata for custom logic
+  priority?: number;
+  expiresAt?: string;
+  meta?: Record<string, any>;
 }
 
 export const apiKeys = pgTable(

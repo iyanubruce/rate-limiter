@@ -5,6 +5,8 @@ import type {
 } from "../../interfaces/api-key";
 import ApiKeyRepo from "../../database/repositories/api-keys";
 import { db } from "../../config/database";
+import { tenants } from "../../database/models";
+import { eq } from "drizzle-orm";
 import { createHash, randomBytes } from "crypto";
 import { BadRequestError, InternalServerError } from "../../error";
 import Redis from "../../services/redis";
@@ -38,11 +40,10 @@ export async function listKeys(data: ListKeysInterface, userId: number) {
   };
 }
 
-export async function createKey(data: CreateKeyInput, userId: number) {
+export async function createKey(data: CreateKeyInput, userId: number, tenantId: string) {
   const {
     name,
     description,
-    tenantId,
     keyPrefix,
     scopes = ["read"],
     rateLimitOverride,
@@ -64,6 +65,11 @@ export async function createKey(data: CreateKeyInput, userId: number) {
     throw new BadRequestError("API key with this name already exists");
   }
 
+  const [tenant] = await db()
+    .select({ plan: tenants.plan, strategy: tenants.strategy })
+    .from(tenants)
+    .where(eq(tenants.id, tenantId));
+
   const newKey = await db().transaction(async (transaction) => {
     const inserted = await apiKeyRepository.createApiKey(
       {
@@ -71,12 +77,12 @@ export async function createKey(data: CreateKeyInput, userId: number) {
         keyHash,
         keyPrefix: data.keyPrefix ?? "sk_live_",
         userId,
+        tenantId,
         ...(description && { description }),
         ...(scopes && { scopes }),
         ...(rateLimitOverride && { rateLimitOverride }),
         ...(ipAllowlist && { ipAllowlist }),
         ...(metadata && { metadata }),
-        ...(tenantId && { tenantId }),
       },
       transaction,
     );
@@ -84,11 +90,14 @@ export async function createKey(data: CreateKeyInput, userId: number) {
       `key:${keyHash}`,
       3600, // 1 hour TTL (refreshed on use)
       JSON.stringify({
-        apiKeyId: inserted!.id,
+        id: inserted!.id,
         userId,
+        tenantId,
+        plan: tenant?.plan ?? "free",
+        strategy: tenant?.strategy ?? "fixed_window",
         scopes,
         rateLimitOverride,
-        expiresAt,
+        expiresAt: expiresAt ?? null,
         revokedAt: null,
       }),
     );

@@ -5,6 +5,8 @@ export interface KeyMetadata {
   userId: number;
   scopes: string[];
   tenantId: string;
+  plan: string;
+  strategy: string;
   rateLimitOverride?: {
     requestsPerSecond?: number;
     burstSize?: number;

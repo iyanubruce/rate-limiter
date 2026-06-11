@@ -27,9 +27,11 @@ export const createKey = async (
 ) => {
   try {
     const userId = request.user?.id;
+    const tenantId = request.user?.tenantId;
     const data = await apiKeyController.createKey(
       request.body as CreateKeyInput,
       userId!,
+      tenantId!,
     );
     return reply.code(201).send(data);
   } catch (error) {

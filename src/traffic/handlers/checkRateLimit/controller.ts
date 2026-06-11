@@ -32,17 +32,23 @@ export const createCheckHandler = () => {
 
       if (keyMetadataStr) {
         keyMetadata = JSON.parse(keyMetadataStr);
+
+        if (keyMetadata.tenantId !== tenantId) {
+          return createErrorResponse("API key not found or revoked", 401);
+        }
+
         redis.client.expire(redisKey, 3600).catch(() => {});
       } else {
         const databaseKey = await apiKeyRepo.findApiKeyByKeyHash(keyHash);
 
-        if (!databaseKey) {
+        if (!databaseKey || databaseKey.tenantId !== tenantId) {
           return createErrorResponse("API key not found or revoked", 401);
         }
 
         keyMetadata = {
           id: databaseKey.id,
           userId: databaseKey.userId,
+          tenantId: databaseKey.tenantId,
           scopes: databaseKey.scopes || [],
           rateLimitOverride: databaseKey.rateLimitOverride as any,
           expiresAt: databaseKey.expiresAt

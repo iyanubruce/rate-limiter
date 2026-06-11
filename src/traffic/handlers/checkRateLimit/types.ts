@@ -4,6 +4,7 @@ export interface KeyMetadata {
   id: number;
   userId: number;
   scopes: string[];
+  tenantId: string;
   rateLimitOverride?: {
     requestsPerSecond?: number;
     burstSize?: number;

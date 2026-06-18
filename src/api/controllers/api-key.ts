@@ -5,8 +5,11 @@ import type {
 } from "../../interfaces/api-key";
 import ApiKeyRepo from "../../database/repositories/api-keys";
 import { db } from "../../config/database";
+import { tenants } from "../../database/models";
+import { eq } from "drizzle-orm";
 import { createHash, randomBytes } from "crypto";
 import { BadRequestError, InternalServerError } from "../../error";
+import { PLAN_STRATEGIES } from "../../interfaces/strategies";
 import Redis from "../../services/redis";
 import config from "../../config/env";
 
@@ -38,11 +41,10 @@ export async function listKeys(data: ListKeysInterface, userId: number) {
   };
 }
 
-export async function createKey(data: CreateKeyInput, userId: number) {
+export async function createKey(data: CreateKeyInput, userId: number, tenantId: string) {
   const {
     name,
     description,
-    tenantId,
     keyPrefix,
     scopes = ["read"],
     rateLimitOverride,
@@ -64,6 +66,21 @@ export async function createKey(data: CreateKeyInput, userId: number) {
     throw new BadRequestError("API key with this name already exists");
   }
 
+  const [tenant] = await db()
+    .select({ plan: tenants.plan, strategy: tenants.strategy })
+    .from(tenants)
+    .where(eq(tenants.id, tenantId));
+
+  if (rateLimitOverride?.strategy) {
+    const normalized = rateLimitOverride.strategy.replace(/-/g, "_");
+    const allowed = PLAN_STRATEGIES[tenant?.plan ?? "free"] ?? [];
+    if (!allowed.includes(normalized)) {
+      throw new BadRequestError(
+        `Strategy "${rateLimitOverride.strategy}" is not allowed on the ${tenant?.plan ?? "free"} plan. Allowed strategies: ${allowed.join(", ")}`,
+      );
+    }
+  }
+
   const newKey = await db().transaction(async (transaction) => {
     const inserted = await apiKeyRepository.createApiKey(
       {
@@ -71,12 +88,12 @@ export async function createKey(data: CreateKeyInput, userId: number) {
         keyHash,
         keyPrefix: data.keyPrefix ?? "sk_live_",
         userId,
+        tenantId,
         ...(description && { description }),
         ...(scopes && { scopes }),
         ...(rateLimitOverride && { rateLimitOverride }),
         ...(ipAllowlist && { ipAllowlist }),
         ...(metadata && { metadata }),
-        ...(tenantId && { tenantId }),
       },
       transaction,
     );
@@ -84,11 +101,14 @@ export async function createKey(data: CreateKeyInput, userId: number) {
       `key:${keyHash}`,
       3600, // 1 hour TTL (refreshed on use)
       JSON.stringify({
-        apiKeyId: inserted!.id,
+        id: inserted!.id,
         userId,
+        tenantId,
+        plan: tenant?.plan ?? "free",
+        strategy: tenant?.strategy ?? "fixed_window",
         scopes,
         rateLimitOverride,
-        expiresAt,
+        expiresAt: expiresAt ?? null,
         revokedAt: null,
       }),
     );
@@ -115,11 +135,13 @@ export async function createKey(data: CreateKeyInput, userId: number) {
 export async function updateKey(
   keyId: number,
   userId: number,
+  tenantId: string,
   data: {
     name?: string;
     description?: string;
     scopes?: string[];
     rateLimitOverride?: {
+      strategy?: "token-bucket" | "sliding-window" | "fixed-window";
       requestsPerSecond?: number;
       burstSize?: number;
     } | null;
@@ -136,6 +158,22 @@ export async function updateKey(
     if (duplicateKey)
       throw new BadRequestError("A key with this name already exists");
   }
+
+  if (data.rateLimitOverride?.strategy) {
+    const [tenant] = await db()
+      .select({ plan: tenants.plan })
+      .from(tenants)
+      .where(eq(tenants.id, tenantId));
+
+    const normalized = data.rateLimitOverride.strategy.replace(/-/g, "_");
+    const allowed = PLAN_STRATEGIES[tenant?.plan ?? "free"] ?? [];
+    if (!allowed.includes(normalized)) {
+      throw new BadRequestError(
+        `Strategy "${data.rateLimitOverride.strategy}" is not allowed on the ${tenant?.plan ?? "free"} plan. Allowed strategies: ${allowed.join(", ")}`,
+      );
+    }
+  }
+
   const updated = await apiKeyRepository.updateApiKey(keyId, data);
   return updated;
 }

@@ -215,7 +215,6 @@ export default class RedisClient {
       case "leaky_bucket":
         return this.leakyBucket(key, limit, windowSeconds, weight);
       case "fixed_window":
-        console.log(LUA_SCRIPTS);
         return this.fixedWindowRateLimit(key, limit, windowSeconds, weight);
       default:
         throw new Error(`Unknown strategy: ${strategy}`);

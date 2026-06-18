@@ -4,6 +4,7 @@ export const checkRateLimitBody = z
     tenantId: z.string().min(1, "Tenant ID is required"),
     identifier: z.string().min(1, "Identifier is required"),
     endpoint: z.string().optional(),
+    strategy: z.string().optional(),
     method: z.string().optional(),
     weight: z.number().int().positive().default(1),
   })

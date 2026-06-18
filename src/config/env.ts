@@ -41,6 +41,16 @@ export interface Config {
     threshold: number;
     timeout: number;
   };
+  stripe: {
+    secretKey: string;
+    webhookSecret: string;
+    priceIds: {
+      pro: string;
+      enterprise: string;
+    };
+    successUrl: string;
+    cancelUrl: string;
+  };
   alerts: {
     quotaWarningThreshold: number;
   };
@@ -93,6 +103,17 @@ const config: Config = {
   circuitBreaker: {
     threshold: parseInt(process.env.CIRCUIT_BREAKER_THRESHOLD || "5"),
     timeout: parseInt(process.env.CIRCUIT_BREAKER_TIMEOUT || "60000"),
+  },
+  stripe: {
+    secretKey: process.env.STRIPE_SECRET_KEY || "",
+    webhookSecret: process.env.STRIPE_WEBHOOK_SECRET || "",
+    priceIds: {
+      pro: process.env.STRIPE_PRICE_PRO || "",
+      enterprise: process.env.STRIPE_PRICE_ENTERPRISE || "",
+    },
+    successUrl:
+      process.env.STRIPE_SUCCESS_URL || "https://example.com/success",
+    cancelUrl: process.env.STRIPE_CANCEL_URL || "https://example.com/cancel",
   },
   alerts: {
     quotaWarningThreshold: parseInt(

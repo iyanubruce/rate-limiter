@@ -1,19 +1,13 @@
-import type { FastifyInstance, FastifyPluginOptions } from "fastify";
-import healthRoutes from "./health";
+import type { FastifyInstance } from "fastify";
 import logger from "../../utils/logger";
+import healthRoutes from "./health";
 import authRoutes from "./auth";
-// import rateLimitRoutes from "./rate-limit";
 import apiKeyRoutes from "./api-keys";
 import analyticsRoutes from "./analytics";
-// import strategiesRoutes from "./strategies";
-import alertsRoutes from "./alerts";
-import simulationRoutes from "./simulation";
-import adminRoutes from "./admin";
-// import exportRoutes from "./export";
-// import graphqlRoutes from "./graphql";
+import tenantsRoutes from "./tenants";
+import webhookRoutes from "./webhooks";
 
 export async function registerRoutes(app: FastifyInstance) {
-  // Root endpoint
   app.get(
     "/",
     {
@@ -45,16 +39,11 @@ export async function registerRoutes(app: FastifyInstance) {
     },
   );
 
-  await app.register(healthRoutes, { prefix: "/health" }); //needs
-  await app.register(authRoutes, { prefix: "/auth" }); //needs
-  // await app.register(rateLimitRoutes, { prefix: "/rate-limit" });
-  await app.register(apiKeyRoutes, { prefix: "/api-keys" }); //needs
+  await app.register(healthRoutes, { prefix: "/health" });
+  await app.register(authRoutes, { prefix: "/auth" });
+  await app.register(apiKeyRoutes, { prefix: "/api-keys" });
   await app.register(analyticsRoutes, { prefix: "/analytics" });
-  // await app.register(strategiesRoutes, { prefix: "/strategies" });
-  await app.register(alertsRoutes, { prefix: "/alerts" });
-  await app.register(simulationRoutes, { prefix: "/simulate" });
-  await app.register(adminRoutes, { prefix: "/admin" });
-  // await app.register(exportRoutes, { prefix: "/exports" });
-  // await app.register(graphqlRoutes, { prefix: "/graphql" });
+  await app.register(tenantsRoutes, { prefix: "/tenants" });
+  await app.register(webhookRoutes, { prefix: "/webhooks" });
   logger.info("✓ Routes registered");
 }

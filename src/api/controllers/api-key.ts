@@ -9,6 +9,7 @@ import { tenants } from "../../database/models";
 import { eq } from "drizzle-orm";
 import { createHash, randomBytes } from "crypto";
 import { BadRequestError, InternalServerError } from "../../error";
+import { PLAN_STRATEGIES } from "../../interfaces/strategies";
 import Redis from "../../services/redis";
 import config from "../../config/env";
 
@@ -70,6 +71,16 @@ export async function createKey(data: CreateKeyInput, userId: number, tenantId: 
     .from(tenants)
     .where(eq(tenants.id, tenantId));
 
+  if (rateLimitOverride?.strategy) {
+    const normalized = rateLimitOverride.strategy.replace(/-/g, "_");
+    const allowed = PLAN_STRATEGIES[tenant?.plan ?? "free"] ?? [];
+    if (!allowed.includes(normalized)) {
+      throw new BadRequestError(
+        `Strategy "${rateLimitOverride.strategy}" is not allowed on the ${tenant?.plan ?? "free"} plan. Allowed strategies: ${allowed.join(", ")}`,
+      );
+    }
+  }
+
   const newKey = await db().transaction(async (transaction) => {
     const inserted = await apiKeyRepository.createApiKey(
       {
@@ -124,11 +135,13 @@ export async function createKey(data: CreateKeyInput, userId: number, tenantId: 
 export async function updateKey(
   keyId: number,
   userId: number,
+  tenantId: string,
   data: {
     name?: string;
     description?: string;
     scopes?: string[];
     rateLimitOverride?: {
+      strategy?: "token-bucket" | "sliding-window" | "fixed-window";
       requestsPerSecond?: number;
       burstSize?: number;
     } | null;
@@ -145,6 +158,22 @@ export async function updateKey(
     if (duplicateKey)
       throw new BadRequestError("A key with this name already exists");
   }
+
+  if (data.rateLimitOverride?.strategy) {
+    const [tenant] = await db()
+      .select({ plan: tenants.plan })
+      .from(tenants)
+      .where(eq(tenants.id, tenantId));
+
+    const normalized = data.rateLimitOverride.strategy.replace(/-/g, "_");
+    const allowed = PLAN_STRATEGIES[tenant?.plan ?? "free"] ?? [];
+    if (!allowed.includes(normalized)) {
+      throw new BadRequestError(
+        `Strategy "${data.rateLimitOverride.strategy}" is not allowed on the ${tenant?.plan ?? "free"} plan. Allowed strategies: ${allowed.join(", ")}`,
+      );
+    }
+  }
+
   const updated = await apiKeyRepository.updateApiKey(keyId, data);
   return updated;
 }

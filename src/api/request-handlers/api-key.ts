@@ -45,18 +45,21 @@ export const updateKey = async (
 ) => {
   try {
     const userId = request.user?.id;
-    if (!userId) {
+    const tenantId = request.user?.tenantId;
+    if (!userId || !tenantId) {
       throw new BadRequestError("Unauthorized");
     }
     const { keyId } = request.params as { keyId: string };
     const data = await apiKeyController.updateKey(
       Number(keyId),
       userId,
+      tenantId,
       request.body as {
         name?: string;
         description?: string;
         scopes?: string[];
         rateLimitOverride?: {
+          strategy?: "token-bucket" | "sliding-window" | "fixed-window";
           requestsPerSecond?: number;
           burstSize?: number;
         } | null;

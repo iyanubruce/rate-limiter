@@ -5,8 +5,12 @@ import { createHash } from "crypto";
 import logger from "../../../utils/logger";
 import type { KeyMetadata, CheckRateLimitInput } from "./types";
 import { trafficDb } from "../../../config/traffic-database";
+import { tenants } from "../../../database/models";
+import { eq } from "drizzle-orm";
 import ApiKeyRepo from "../../../database/repositories/api-keys";
 import { ratelimitEventQueue } from "../../../jobs/queues/queue";
+import { PLAN_STRATEGIES } from "../../../interfaces/strategies";
+
 const redis = new Redis(config.redis);
 const apiKeyRepo = new ApiKeyRepo(trafficDb);
 
@@ -19,10 +23,10 @@ export const createCheckHandler = () => {
       const apiKey = req.headers.get("x-api-key")!;
       const data: CheckRateLimitInput = req.body;
       const { tenantId, identifier, endpoint, method, weight } = data;
+      const bodyStrategy = data.strategy;
 
       let quota = defaultQuota;
       let window = defaultWindow;
-      let strategy = config.rateLimit.defaultStrategy;
       let keyMetadata: KeyMetadata;
 
       const keyHash = createHash("sha256").update(apiKey).digest("hex");
@@ -45,10 +49,17 @@ export const createCheckHandler = () => {
           return createErrorResponse("API key not found or revoked", 401);
         }
 
+        const [tenant] = await trafficDb
+          .select({ plan: tenants.plan, strategy: tenants.strategy })
+          .from(tenants)
+          .where(eq(tenants.id, tenantId));
+
         keyMetadata = {
           id: databaseKey.id,
           userId: databaseKey.userId,
           tenantId: databaseKey.tenantId,
+          plan: tenant?.plan ?? "free",
+          strategy: tenant?.strategy ?? "fixed_window",
           scopes: databaseKey.scopes || [],
           rateLimitOverride: databaseKey.rateLimitOverride as any,
           expiresAt: databaseKey.expiresAt
@@ -60,12 +71,32 @@ export const createCheckHandler = () => {
         await redis.client.setex(redisKey, 3600, JSON.stringify(keyMetadata));
       }
 
+      let strategy:
+        | "token_bucket"
+        | "sliding_window"
+        | "leaky_bucket"
+        | "fixed_window" = keyMetadata.strategy as any;
+
       if (keyMetadata.rateLimitOverride) {
         quota = keyMetadata.rateLimitOverride.requestsPerSecond || defaultQuota;
         window = keyMetadata.rateLimitOverride.windowMs
           ? keyMetadata.rateLimitOverride.windowMs / 1000
           : defaultWindow;
-        strategy = (keyMetadata.rateLimitOverride.strategy as any) || strategy;
+        if (keyMetadata.rateLimitOverride.strategy) {
+          strategy = keyMetadata.rateLimitOverride.strategy as any;
+        }
+      }
+
+      if (bodyStrategy) {
+        strategy = bodyStrategy as any;
+      }
+
+      const allowedStrategies = PLAN_STRATEGIES[keyMetadata.plan];
+      if (!allowedStrategies || !allowedStrategies.includes(strategy)) {
+        return createErrorResponse(
+          `Strategy "${strategy}" is not allowed on the ${keyMetadata.plan} plan`,
+          403,
+        );
       }
 
       const routePath = endpoint && method ? `:${method}:${endpoint}` : "";

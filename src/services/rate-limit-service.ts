@@ -1,245 +1,207 @@
-// import Redis from "../services/redis";
-// import config from "../config/env";
-// import { db } from "../config/database";
-// import { rateLimitEvents } from "../database/models";
-// import { broadcastQuotaViolation } from "../websocket/native";
-// import logger from "../utils/logger";
-// import ApiKeyRepository from "../database/repositories/api-keys";
+import Redis from "../services/redis";
+import config from "../config/env";
+import { trafficDb } from "../config/traffic-database";
+import { ratelimitEventQueue } from "../jobs/queues/queue";
+import { createHash } from "crypto";
+import logger from "../utils/logger";
+import ApiKeyRepo from "../database/repositories/api-keys";
+import type { KeyMetadata } from "../traffic/handlers/checkRateLimit/types";
 
-// export interface RateLimitCheckResult {
-//   allowed: boolean;
-//   remaining: number;
-//   resetAt: number;
-//   limit: number;
-//   strategy: string;
-//   retryAfter?: number;
-//   blockedReason?: string;
-// }
+export interface RateLimitCheckResult {
+  allowed: boolean;
+  remaining: number;
+  resetAt: number;
+  limit: number;
+  strategy: string;
+  retryAfter?: number;
+  blockedReason?: string;
+}
 
-// export interface RateLimitCheckParams {
-//   identifier: string;
-//   apiKey?: string;
-//   endpoint?: string;
-//   method?: string;
-//   ipAddress?: string;
-//   userAgent?: string;
-//   customLimit?: number;
-//   customWindow?: number;
-//   customStrategy?: "token_bucket" | "sliding_window" | "leaky_bucket" | "fixed_window";
-//   userId?: number;
-//   requestId?: string;
-// }
+export interface RateLimitCheckParams {
+  tenantId: string;
+  identifier: string;
+  apiKey: string;
+  endpoint?: string;
+  method?: string;
+  weight?: number;
+  ipAddress?: string;
+  userAgent?: string;
+  userId?: number;
+  requestId?: string;
+}
 
-// export default class RateLimitService {
-//   private redis: Redis;
+export default class RateLimitService {
+  private redis: Redis;
+  private apiKeyRepo: ApiKeyRepo;
 
-//   constructor(redis: Redis) {
-//     this.redis = redis;
-//   }
+  constructor() {
+    this.redis = new Redis(config.redis);
+    this.apiKeyRepo = new ApiKeyRepo(trafficDb);
+  }
 
-//   async checkRateLimit(params: RateLimitCheckParams): Promise<RateLimitCheckResult> {
-//     const startTime = Date.now();
-//     const {
-//       identifier,
-//       apiKey,
-//       endpoint = "/",
-//       method = "GET",
-//       ipAddress = "unknown",
-//       userAgent = "unknown",
-//       customLimit,
-//       customWindow,
-//       customStrategy,
-//       requestId,
-//     } = params;
+  async checkRateLimit(params: RateLimitCheckParams): Promise<RateLimitCheckResult> {
+    const startTime = Date.now();
+    const {
+      tenantId,
+      identifier,
+      apiKey,
+      endpoint,
+      method,
+      weight = 1,
+      ipAddress = identifier,
+      userAgent = "UNKNOWN",
+    } = params;
 
-//     let limit = customLimit || config.rateLimit.defaultQuota;
-//     let windowSeconds = customWindow || config.rateLimit.defaultWindow;
-//     let strategy = customStrategy || config.rateLimit.defaultStrategy;
+    let quota = config.rateLimit.defaultQuota;
+    let window = config.rateLimit.defaultWindow;
+    let strategy: string = config.rateLimit.defaultStrategy;
+    let keyMetadata: KeyMetadata;
+    let apiKeyId: number;
 
-//     let apiKeyId: number | undefined;
-//     let tenantId: number | undefined;
-//     let resolvedUserId: number | undefined = params.userId;
+    const keyHash = createHash("sha256").update(apiKey).digest("hex");
+    const redisKey = `key:${keyHash}`;
 
-//     if (apiKey) {
-//       const keyHash = this.hashApiKey(apiKey);
-//       const apiKeyRepo = new ApiKeyRepository(db());
-//       const keyRecord = await apiKeyRepo.getValidApiKeyByKeyHash(keyHash);
+    const keyMetadataStr = await this.redis.client.get(redisKey);
 
-//       if (keyRecord) {
-//         apiKeyId = keyRecord.id;
-//         resolvedUserId = keyRecord.userId;
-//         tenantId = keyRecord.tenantId || undefined;
+    if (keyMetadataStr) {
+      keyMetadata = JSON.parse(keyMetadataStr);
 
-//         if (keyRecord.rateLimitOverride && typeof keyRecord.rateLimitOverride === 'object') {
-//           const override = keyRecord.rateLimitOverride as { requestsPerSecond?: number; limit?: number; window?: number };
-//           if (override.limit) limit = override.limit;
-//           if (override.window) windowSeconds = override.window;
-//         }
-//       }
-//     }
+      if (keyMetadata.tenantId !== tenantId) {
+        return {
+          allowed: false,
+          remaining: 0,
+          resetAt: Date.now(),
+          limit: quota,
+          strategy: strategy as string,
+          blockedReason: "api_key_mismatch",
+        };
+      }
 
-//     const redisKey = `ratelimit:${identifier}:${strategy}`;
-//     const windowMs = windowSeconds * 1000;
+      this.redis.client.expire(redisKey, 3600).catch(() => {});
+    } else {
+      const databaseKey = await this.apiKeyRepo.findApiKeyByKeyHash(keyHash);
 
-//     let result: { allowed: boolean; remaining: number; resetAt: number };
-//     try {
-//       result = await this.redis.checkRateLimit(
-//         redisKey,
-//         limit,
-//         windowSeconds,
-//         strategy as "token_bucket" | "sliding_window" | "leaky_bucket"
-//       );
-//     } catch (error) {
-//       logger.error("Rate limit check failed", { error, identifier });
-//       result = { allowed: true, remaining: limit - 1, resetAt: Date.now() + windowMs };
-//     }
+      if (!databaseKey || databaseKey.tenantId !== tenantId) {
+        return {
+          allowed: false,
+          remaining: 0,
+          resetAt: Date.now(),
+          limit: quota,
+          strategy: strategy as string,
+          blockedReason: "api_key_not_found_or_revoked",
+        };
+      }
 
-//     const remainingQuota = result.remaining;
-//     const usagePercentage = ((limit - remainingQuota) / limit) * 100;
+      keyMetadata = {
+        id: databaseKey.id,
+        userId: databaseKey.userId,
+        tenantId: databaseKey.tenantId,
+        scopes: databaseKey.scopes || [],
+        rateLimitOverride: databaseKey.rateLimitOverride as any,
+        expiresAt: databaseKey.expiresAt
+          ? databaseKey.expiresAt.toISOString()
+          : null,
+        revokedAt: null,
+      };
 
-//     if (usagePercentage >= config.alerts.quotaWarningThreshold && usagePercentage < 100) {
-//       this.emitQuotaWarning(identifier, usagePercentage, remainingQuota, limit, tenantId);
-//     }
+      await this.redis.client.setex(redisKey, 3600, JSON.stringify(keyMetadata));
+    }
 
-//     if (!result.allowed) {
-//       this.logEvent({
-//         ipAddress,
-//         endpoint,
-//         method,
-//         userAgent,
-//         statusCode: 429,
-//         requestDurationMs: Date.now() - startTime,
-//         userId: resolvedUserId,
-//         apiKeyId,
-//         isBlocked: true,
-//         remainingQuota,
-//         blockReason: "quota_exceeded",
-//         requestId,
-//       });
+    apiKeyId = keyMetadata.id;
 
-//       broadcastQuotaViolation(tenantId?.toString() || "unknown", {
-//         identifier,
-//         remainingQuota,
-//         limit,
-//         strategy,
-//       });
+    if (keyMetadata.rateLimitOverride) {
+      quota = keyMetadata.rateLimitOverride.requestsPerSecond || config.rateLimit.defaultQuota;
+      window = keyMetadata.rateLimitOverride.windowMs
+        ? keyMetadata.rateLimitOverride.windowMs / 1000
+        : config.rateLimit.defaultWindow;
+      strategy = keyMetadata.rateLimitOverride.strategy || strategy;
+    }
 
-//       return {
-//         allowed: false,
-//         remaining: 0,
-//         resetAt: result.resetAt,
-//         limit,
-//         strategy,
-//         retryAfter: Math.ceil((result.resetAt - Date.now()) / 1000),
-//         blockedReason: "quota_exceeded",
-//       };
-//     }
+    const routePath = endpoint && method ? `:${method}:${endpoint}` : "";
+    const rateLimitKey = `ratelimit:${tenantId}:${identifier}${routePath}`;
+    const now = Date.now();
 
-//     this.logEvent({
-//       ipAddress,
-//       endpoint,
-//       method,
-//       userAgent,
-//       statusCode: 200,
-//       requestDurationMs: Date.now() - startTime,
-//       userId: resolvedUserId,
-//       apiKeyId,
-//       isBlocked: false,
-//       remainingQuota,
-//       requestId,
-//     });
+    let executionKey = rateLimitKey;
+    if (strategy === "fixed_window") {
+      const currentWindow = Math.floor(now / (window * 1000));
+      executionKey = `${rateLimitKey}:${currentWindow}`;
+    }
 
-//     return {
-//       allowed: true,
-//       remaining: remainingQuota,
-//       resetAt: result.resetAt,
-//       limit,
-//       strategy,
-//     };
-//   }
+    let result: { allowed: boolean; remaining: number; resetAt: number };
+    try {
+      result = await this.redis.checkRateLimit(
+        executionKey,
+        quota,
+        window,
+        strategy as "token_bucket" | "sliding_window" | "leaky_bucket" | "fixed_window",
+        weight,
+      );
+    } catch (error) {
+      logger.error("Rate limit check failed", { error, identifier });
+      result = { allowed: true, remaining: quota - 1, resetAt: Date.now() + window * 1000 };
+    }
 
-//   async checkBatchRateLimits(
-//     requests: Array<{
-//       identifier: string;
-//       limit?: number;
-//       window?: number;
-//       strategy?: string;
-//     }>
-//   ): Promise<Array<RateLimitCheckResult & { identifier: string }>> {
-//     const results = await Promise.all(
-//       requests.map(async (req) => {
-//         const result = await this.checkRateLimit({
-//           identifier: req.identifier,
-//           customLimit: req.limit,
-//           customWindow: req.window,
-//           customStrategy: req.strategy as any,
-//         });
-//         return { ...result, identifier: req.identifier };
-//       })
-//     );
-//     return results;
-//   }
+    const remainingQuota = result.remaining;
 
-//   private async logEvent(data: {
-//     ipAddress: string;
-//     endpoint: string;
-//     method: string;
-//     userAgent: string;
-//     statusCode: number;
-//     requestDurationMs: number;
-//     userId?: number;
-//     apiKeyId?: number;
-//     isBlocked: boolean;
-//     remainingQuota: number;
-//     blockReason?: string;
-//     requestId?: string;
-//   }) {
-//     try {
-//       await db().insert(rateLimitEvents).values({
-//         time: new Date(),
-//         ipAddress: data.ipAddress,
-//         endpoint: data.endpoint,
-//         method: data.method,
-//         userAgent: data.userAgent,
-//         statusCode: data.statusCode,
-//         requestDurationMs: data.requestDurationMs,
-//         userId: data.userId,
-//         apiKeyId: data.apiKeyId,
-//         isBlocked: data.isBlocked,
-//         remainingQuota: data.remainingQuota,
-//         blockReason: data.blockReason,
-//         requestId: data.requestId,
-//       });
-//     } catch (error) {
-//       logger.error("Failed to log rate limit event", { error });
-//     }
-//   }
+    ratelimitEventQueue.add("log-event", {
+      time: new Date(),
+      tenantId,
+      apiKeyId,
+      ipAddress,
+      endpoint: endpoint || "/",
+      method: method || "GET",
+      userAgent,
+      statusCode: result.allowed ? 200 : 429,
+      requestDurationMs: Date.now() - startTime,
+      responseSize: 0,
+      isBlocked: !result.allowed,
+      remainingQuota,
+    });
 
-//   private emitQuotaWarning(
-//     identifier: string,
-//     usagePercentage: number,
-//     remaining: number,
-//     limit: number,
-//     tenantId?: number
-//   ) {
-//     const message = {
-//       type: "quota_warning",
-//       identifier,
-//       usagePercentage,
-//       remaining,
-//       limit,
-//       timestamp: Date.now(),
-//     };
+    if (!result.allowed) {
+      return {
+        allowed: false,
+        remaining: 0,
+        resetAt: result.resetAt,
+        limit: quota,
+        strategy: strategy as string,
+        retryAfter: Math.ceil((result.resetAt - Date.now()) / 1000),
+        blockedReason: "quota_exceeded",
+      };
+    }
 
-//     if (tenantId) {
-//       broadcastQuotaViolation(tenantId.toString(), message);
-//     }
+    return {
+      allowed: true,
+      remaining: remainingQuota,
+      resetAt: result.resetAt,
+      limit: quota,
+      strategy: strategy as string,
+    };
+  }
 
-//     logger.info("Quota warning emitted", message);
-//   }
-
-//   private hashApiKey(apiKey: string): string {
-//     const crypto = require("crypto");
-//     return crypto.createHash("sha256").update(apiKey).digest("hex");
-//   }
-// }
+  async checkBatchRateLimits(
+    requests: Array<{
+      tenantId: string;
+      identifier: string;
+      apiKey: string;
+      endpoint?: string;
+      method?: string;
+      weight?: number;
+    }>
+  ): Promise<Array<RateLimitCheckResult & { identifier: string }>> {
+    const results = await Promise.all(
+      requests.map(async (req) => {
+        const result = await this.checkRateLimit({
+          tenantId: req.tenantId,
+          identifier: req.identifier,
+          apiKey: req.apiKey,
+          endpoint: req.endpoint,
+          method: req.method,
+          weight: req.weight,
+        });
+        return { ...result, identifier: req.identifier };
+      })
+    );
+    return results;
+  }
+}

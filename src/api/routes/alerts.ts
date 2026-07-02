@@ -22,8 +22,8 @@ const alertsRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
-      const userId = request.user?.id;
-      if (!userId) {
+      const user = request.user;
+      if (!user) {
         throw new ResourceNotFoundError("User not found");
       }
 
@@ -33,7 +33,7 @@ const alertsRoutes: FastifyPluginAsync = async (fastify) => {
         isActive?: boolean;
       };
 
-      const conditions = [eq(alerts.userId, userId)];
+      const conditions = [eq(alerts.tenantId, user.tenantId)];
       if (isActive !== undefined) {
         conditions.push(eq(alerts.isActive, isActive));
       }
@@ -58,7 +58,7 @@ const alertsRoutes: FastifyPluginAsync = async (fastify) => {
           properties: {
             name: { type: "string", minLength: 1, maxLength: 255 },
             channel: { type: "string", enum: ["email", "webhook", "slack", "discord"] },
-            type: { type: "string", enum: ["quota_warning", "quota_exceeded", "rate_limited", "anomaly_detected"] },
+            type: { type: "string", enum: ["quota_warning", "rate_limit_exceeded", "api_key_expiring", "error_rate_spike"] },
             threshold: { type: "integer", minimum: 1, maximum: 100 },
             config: { type: "object" },
             isActive: { type: "boolean", default: true },
@@ -67,22 +67,23 @@ const alertsRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
-      const userId = request.user?.id;
-      if (!userId) {
+      const user = request.user;
+      if (!user) {
         throw new ResourceNotFoundError("User not found");
       }
 
       const { name, channel, type, threshold, config, isActive } = request.body as {
         name: string;
-        channel: string;
-        type: string;
+        channel: "email" | "webhook" | "slack" | "discord";
+        type: "quota_warning" | "rate_limit_exceeded" | "api_key_expiring" | "error_rate_spike";
         threshold: number;
         config?: object;
         isActive?: boolean;
       };
 
       const [newAlert] = await db().insert(alerts).values({
-        userId,
+        tenantId: user.tenantId,
+        userId: user.id,
         name,
         channel,
         type,
@@ -109,7 +110,7 @@ const alertsRoutes: FastifyPluginAsync = async (fastify) => {
           properties: {
             name: { type: "string", minLength: 1, maxLength: 255 },
             channel: { type: "string", enum: ["email", "webhook", "slack", "discord"] },
-            type: { type: "string", enum: ["quota_warning", "quota_exceeded", "rate_limited", "anomaly_detected"] },
+            type: { type: "string", enum: ["quota_warning", "rate_limit_exceeded", "api_key_expiring", "error_rate_spike"] },
             threshold: { type: "integer", minimum: 1, maximum: 100 },
             config: { type: "object" },
             isActive: { type: "boolean" },
@@ -118,16 +119,16 @@ const alertsRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
-      const userId = request.user?.id;
-      if (!userId) {
+      const user = request.user;
+      if (!user) {
         throw new ResourceNotFoundError("User not found");
       }
 
       const { alertId } = request.params as { alertId: string };
       const data = request.body as Partial<{
         name: string;
-        channel: string;
-        type: string;
+        channel: "email" | "webhook" | "slack" | "discord";
+        type: "quota_warning" | "rate_limit_exceeded" | "api_key_expiring" | "error_rate_spike";
         threshold: number;
         config: object;
         isActive: boolean;
@@ -135,7 +136,7 @@ const alertsRoutes: FastifyPluginAsync = async (fastify) => {
 
       const [updated] = await db().update(alerts)
         .set({ ...data, updatedAt: new Date() })
-        .where(and(eq(alerts.id, Number(alertId)), eq(alerts.userId, userId)))
+        .where(and(eq(alerts.id, Number(alertId)), eq(alerts.tenantId, user.tenantId)))
         .returning();
 
       if (!updated) {
@@ -158,15 +159,15 @@ const alertsRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
-      const userId = request.user?.id;
-      if (!userId) {
+      const user = request.user;
+      if (!user) {
         throw new ResourceNotFoundError("User not found");
       }
 
       const { alertId } = request.params as { alertId: string };
 
       const [deleted] = await db().delete(alerts)
-        .where(and(eq(alerts.id, Number(alertId)), eq(alerts.userId, userId)))
+        .where(and(eq(alerts.id, Number(alertId)), eq(alerts.tenantId, user.tenantId)))
         .returning();
 
       if (!deleted) {
@@ -231,7 +232,7 @@ const alertsRoutes: FastifyPluginAsync = async (fastify) => {
               type: "array",
               items: {
                 type: "string",
-                enum: ["quota_warning", "quota_exceeded", "rate_limited", "anomaly_detected", "strategy_changed"],
+                enum: ["quota_warning", "rate_limit_exceeded", "api_key_expiring", "error_rate_spike", "strategy_changed"],
               },
               minItems: 1,
             },

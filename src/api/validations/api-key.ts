@@ -146,6 +146,10 @@ export const updateKeySchema: FastifySchema = {
         properties: {
           requestsPerSecond: { type: "integer", minimum: 1, maximum: 10000 },
           burstSize: { type: "integer", minimum: 1 },
+          strategy: {
+            type: "string",
+            enum: ["token-bucket", "sliding-window", "fixed-window"],
+          },
         },
       },
     },

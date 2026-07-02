@@ -57,6 +57,29 @@ export default class ApiKeyRepository {
     );
   }
 
+  async getTenantById(id: string, transaction?: Transaction) {
+    const client = transaction || this.db;
+    return (
+      (await client.query.tenants.findFirst({
+        where: eq(tenants.id, id),
+      })) ?? null
+    );
+  }
+
+  async updateTenant(
+    id: string,
+    data: Partial<TenantInsert>,
+    transaction?: Transaction,
+  ) {
+    const client = transaction || this.db;
+    const [updated] = await client
+      .update(tenants)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(tenants.id, id))
+      .returning();
+    return updated ?? null;
+  }
+
   async getTenant(
     data: TenantWhereInput,
     transaction?: Transaction,

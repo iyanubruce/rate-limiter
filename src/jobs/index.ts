@@ -1,7 +1,6 @@
 import { Worker, Queue } from "bullmq";
 import config from "../config/env";
 import RateLimitRepository from "../database/repositories/rate-limit-events";
-import ApiKeyRepository from "../database/repositories/api-keys";
 import { trafficDb as db } from "../config/traffic-database";
 import { sql } from "drizzle-orm";
 import logger from "../utils/logger";

@@ -25,6 +25,7 @@ export const tenants = pgTable("tenants", {
     .default("fixed_window"),
   windowSeconds: integer("window_seconds").notNull().default(60),
 
+  stripeCustomerId: varchar("stripe_customer_id", { length: 255 }),
   isActive: boolean("is_active").notNull().default(true),
   settings: jsonb("settings"),
   createdAt: timestamp("created_at").defaultNow().notNull(),

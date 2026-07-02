@@ -27,9 +27,11 @@ export const createKey = async (
 ) => {
   try {
     const userId = request.user?.id;
+    const tenantId = request.user?.tenantId;
     const data = await apiKeyController.createKey(
       request.body as CreateKeyInput,
       userId!,
+      tenantId!,
     );
     return reply.code(201).send(data);
   } catch (error) {
@@ -43,18 +45,21 @@ export const updateKey = async (
 ) => {
   try {
     const userId = request.user?.id;
-    if (!userId) {
+    const tenantId = request.user?.tenantId;
+    if (!userId || !tenantId) {
       throw new BadRequestError("Unauthorized");
     }
     const { keyId } = request.params as { keyId: string };
     const data = await apiKeyController.updateKey(
       Number(keyId),
       userId,
+      tenantId,
       request.body as {
         name?: string;
         description?: string;
         scopes?: string[];
         rateLimitOverride?: {
+          strategy?: "token-bucket" | "sliding-window" | "fixed-window";
           requestsPerSecond?: number;
           burstSize?: number;
         } | null;

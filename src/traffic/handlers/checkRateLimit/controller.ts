@@ -22,7 +22,10 @@ export const createCheckHandler = () => {
         userAgent: req.headers.get("user-agent") || "UNKNOWN",
       });
 
-      if (result.blockedReason === "api_key_mismatch" || result.blockedReason === "api_key_not_found_or_revoked") {
+      if (
+        result.blockedReason === "api_key_mismatch" ||
+        result.blockedReason === "api_key_not_found_or_revoked"
+      ) {
         return createErrorResponse("API key not found or revoked", 401);
       }
 

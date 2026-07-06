@@ -1,7 +1,7 @@
 import pg from "pg";
 import logger from "../utils/logger";
 import { drizzle } from "drizzle-orm/node-postgres";
-import type { QueryResult, QueryResultRow } from "pg"; // make sure to import this
+import type { QueryResultRow } from "pg"; // make sure to import this
 import * as schema from "../database/models";
 import config from "./env";
 const { Pool } = pg;

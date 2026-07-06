@@ -1,8 +1,8 @@
 import { defineConfig } from "drizzle-kit";
 import config from "./src/config/env";
 export default defineConfig({
-  dialect: "postgresql", // or "mysql" | "sqlite"
-  schema: "./src/database/models",
+  dialect: "postgresql",
+  schema: "./src/database/models/index.ts",
   out: "./src/database/migrations",
   dbCredentials: {
     user: config.database.user,

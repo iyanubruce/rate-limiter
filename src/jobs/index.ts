@@ -1,4 +1,4 @@
-import { Worker, Queue } from "bullmq";
+import { Worker } from "bullmq";
 import config from "../config/env";
 import RateLimitRepository from "../database/repositories/rate-limit-events";
 import { trafficDb as db } from "../config/traffic-database";

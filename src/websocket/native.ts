@@ -9,19 +9,12 @@ export interface WebSocketData {
   connectedAt: number;
   apiKey: string | null;
   tenantId?: string;
-}
-
-// Connection registry
-const connections = new Map<ServerWebSocket<WebSocketData>, WebSocketData>();
-const subscriptions = new Map<ServerWebSocket<WebSocketData>, Set<string>>();
-const metricsInterval: Map<string, NodeJS.Timeout> = new Map();
-
-export interface WebSocketData {
-  connectedAt: number;
-  apiKey: string | null;
-  tenantId?: string;
   subscriptions?: Set<string>;
 }
+
+const connections = new Map<ServerWebSocket<WebSocketData>, WebSocketData>();
+const subscriptions = new Map<ServerWebSocket<WebSocketData>, Set<string>>();
+const metricsIntervals: Map<string, { interval: NodeJS.Timeout; refCount: number }> = new Map();
 
 export const websocketHandlers = {
   onOpen(
@@ -210,22 +203,36 @@ async function handleSubscribe(
       ws.data.subscriptions.add(channel);
       subscribedChannels.push(channel);
 
-      if (channel === "metrics" && !metricsInterval.has(String(ws.data.tenantId))) {
-        const interval = setInterval(async () => {
-          try {
-            const metricsData = await gatherMetrics(redis, db);
-            ws.send(
-              JSON.stringify({
-                type: "metrics",
-                data: metricsData,
-                timestamp: Date.now(),
-              }),
-            );
-          } catch (error) {
-            logger.error({ event: "metrics_gather_error", error });
-          }
-        }, 5000);
-        metricsInterval.set(String(ws.data.tenantId), interval);
+      if (channel === "metrics") {
+        const tenantKey = String(ws.data.tenantId);
+        const existing = metricsIntervals.get(tenantKey);
+        if (existing) {
+          existing.refCount++;
+        } else {
+          const interval = setInterval(async () => {
+            try {
+              const metricsData = await gatherMetrics(redis, db);
+              for (const [conn, subs] of subscriptions.entries()) {
+                if (
+                  conn.data.tenantId === ws.data.tenantId &&
+                  subs.has("metrics") &&
+                  conn.readyState === 1
+                ) {
+                  conn.send(
+                    JSON.stringify({
+                      type: "metrics",
+                      data: metricsData,
+                      timestamp: Date.now(),
+                    }),
+                  );
+                }
+              }
+            } catch (error) {
+              logger.error({ event: "metrics_gather_error", error });
+            }
+          }, 5000);
+          metricsIntervals.set(tenantKey, { interval, refCount: 1 });
+        }
       }
     }
   }
@@ -257,10 +264,14 @@ async function handleUnsubscribe(
       unsubscribedChannels.push(channel);
 
       if (channel === "metrics") {
-        const interval = metricsInterval.get(String(ws.data.tenantId));
-        if (interval) {
-          clearInterval(interval);
-          metricsInterval.delete(String(ws.data.tenantId));
+        const tenantKey = String(ws.data.tenantId);
+        const entry = metricsIntervals.get(tenantKey);
+        if (entry) {
+          entry.refCount--;
+          if (entry.refCount <= 0) {
+            clearInterval(entry.interval);
+            metricsIntervals.delete(tenantKey);
+          }
         }
       }
     }

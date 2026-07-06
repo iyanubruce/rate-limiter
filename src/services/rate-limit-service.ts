@@ -114,7 +114,7 @@ export default class RateLimitService {
         userId: databaseKey.userId,
         tenantId: databaseKey.tenantId,
         scopes: databaseKey.scopes || [],
-        plan: databaseKey.tenant?.plan ?? config.rateLimit.defaultStrategy,
+        plan: databaseKey.tenant?.plan ?? "free",
         strategy:
           databaseKey.tenant?.strategy ?? config.rateLimit.defaultStrategy,
         quota: databaseKey.tenant?.quota ?? config.rateLimit.defaultQuota,

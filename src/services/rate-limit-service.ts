@@ -1,4 +1,4 @@
-import Redis from "../services/redis";
+import Redis, { getSharedRedis } from "../services/redis";
 import config from "../config/env";
 import { trafficDb } from "../config/traffic-database";
 import { ratelimitEventQueue } from "../jobs/queues/queue";
@@ -37,7 +37,7 @@ export default class RateLimitService {
   private apiKeyRepo: ApiKeyRepo;
 
   constructor() {
-    this.redis = new Redis(config.redis);
+    this.redis = getSharedRedis();
     this.apiKeyRepo = new ApiKeyRepo(trafficDb);
   }
 

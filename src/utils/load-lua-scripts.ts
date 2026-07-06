@@ -1,7 +1,6 @@
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// Get directory of THIS file reliably
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 
 const luaDirPath = join(__dirname, "..", "lua");
@@ -24,13 +23,11 @@ export async function loadLuaScript(filename: string): Promise<string> {
   return await file.text();
 }
 export async function loadAllLuaScripts(): Promise<Record<string, string>> {
-  // const rateLimitScript = await loadLuaScript("rate-limit.lua");
   const fixedWindowScript = await loadLuaScript("fixed-window.lua");
   const tokenBucketScript = await loadLuaScript("token-bucket.lua");
   const slidingWindowScript = await loadLuaScript("sliding-window.lua");
   const leakyBucketScript = await loadLuaScript("leaky-bucket.lua");
   return {
-    // rateLimit: rateLimitScript,
     tokenBucket: tokenBucketScript,
     slidingWindow: slidingWindowScript,
     leakyBucket: leakyBucketScript,

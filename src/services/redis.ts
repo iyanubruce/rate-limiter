@@ -4,10 +4,20 @@ import Redis, {
 } from "ioredis";
 import logger from "../utils/logger";
 import { loadAllLuaScripts } from "../utils/load-lua-scripts";
+import config from "../config/env";
 
 let LUA_SCRIPTS: Record<string, string>;
 
 LUA_SCRIPTS = await loadAllLuaScripts();
+
+let sharedInstance: RedisClient | null = null;
+
+export function getSharedRedis(): RedisClient {
+  if (!sharedInstance) {
+    sharedInstance = new RedisClient(config.redis);
+  }
+  return sharedInstance;
+}
 
 export interface RedisConfig {
   host: string;

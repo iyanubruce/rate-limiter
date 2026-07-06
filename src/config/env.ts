@@ -26,7 +26,6 @@ export interface Config {
   jwt: {
     secret: string;
     expiresIn: number;
-    refreshExpiresIn: number;
   };
   rateLimit: {
     defaultStrategy:
@@ -89,8 +88,7 @@ const config: Config = {
   },
   jwt: {
     secret: process.env.JWT_SECRET || "secret",
-    expiresIn: parseInt(process.env.JWT_EXPIRES_IN || "86400"),
-    refreshExpiresIn: parseInt(process.env.JWT_REFRESH_EXPIRES_IN || "604800"),
+    expiresIn: parseInt(process.env.JWT_EXPIRES_IN || "3600"),
   },
   rateLimit: {
     defaultStrategy:

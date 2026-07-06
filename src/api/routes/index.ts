@@ -6,6 +6,7 @@ import apiKeyRoutes from "./api-keys";
 import analyticsRoutes from "./analytics";
 import tenantsRoutes from "./tenants";
 import webhookRoutes from "./webhooks";
+import alertsRoutes from "./alerts";
 
 export async function registerRoutes(app: FastifyInstance) {
   app.get(
@@ -45,5 +46,6 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(analyticsRoutes, { prefix: "/analytics" });
   await app.register(tenantsRoutes, { prefix: "/tenants" });
   await app.register(webhookRoutes, { prefix: "/webhooks" });
+  await app.register(alertsRoutes, { prefix: "/" });
   logger.info("✓ Routes registered");
 }

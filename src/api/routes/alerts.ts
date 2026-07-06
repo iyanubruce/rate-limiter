@@ -7,6 +7,8 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 import { ResourceNotFoundError } from "../../error";
 
 const alertsRoutes: FastifyPluginAsync = async (fastify) => {
+  fastify.addHook("preHandler", validateAccessToken);
+
   fastify.get(
     "/v1/alerts",
     {
@@ -38,14 +40,18 @@ const alertsRoutes: FastifyPluginAsync = async (fastify) => {
         conditions.push(eq(alerts.isActive, isActive));
       }
 
-      const userAlerts = await db().select().from(alerts)
+      const userAlerts = await db()
+        .select()
+        .from(alerts)
         .where(and(...conditions))
         .orderBy(desc(alerts.createdAt))
         .limit(limit || 50)
         .offset(offset || 0);
 
-      return reply.code(200).send({ alerts: userAlerts, count: userAlerts.length });
-    }
+      return reply
+        .code(200)
+        .send({ alerts: userAlerts, count: userAlerts.length });
+    },
   );
 
   fastify.post(
@@ -57,8 +63,19 @@ const alertsRoutes: FastifyPluginAsync = async (fastify) => {
           required: ["name", "channel", "type", "threshold"],
           properties: {
             name: { type: "string", minLength: 1, maxLength: 255 },
-            channel: { type: "string", enum: ["email", "webhook", "slack", "discord"] },
-            type: { type: "string", enum: ["quota_warning", "rate_limit_exceeded", "api_key_expiring", "error_rate_spike"] },
+            channel: {
+              type: "string",
+              enum: ["email", "webhook", "slack", "discord"],
+            },
+            type: {
+              type: "string",
+              enum: [
+                "quota_warning",
+                "rate_limit_exceeded",
+                "api_key_expiring",
+                "error_rate_spike",
+              ],
+            },
             threshold: { type: "integer", minimum: 1, maximum: 100 },
             config: { type: "object" },
             isActive: { type: "boolean", default: true },
@@ -72,28 +89,36 @@ const alertsRoutes: FastifyPluginAsync = async (fastify) => {
         throw new ResourceNotFoundError("User not found");
       }
 
-      const { name, channel, type, threshold, config, isActive } = request.body as {
-        name: string;
-        channel: "email" | "webhook" | "slack" | "discord";
-        type: "quota_warning" | "rate_limit_exceeded" | "api_key_expiring" | "error_rate_spike";
-        threshold: number;
-        config?: object;
-        isActive?: boolean;
-      };
+      const { name, channel, type, threshold, config, isActive } =
+        request.body as {
+          name: string;
+          channel: "email" | "webhook" | "slack" | "discord";
+          type:
+            | "quota_warning"
+            | "rate_limit_exceeded"
+            | "api_key_expiring"
+            | "error_rate_spike";
+          threshold: number;
+          config?: object;
+          isActive?: boolean;
+        };
 
-      const [newAlert] = await db().insert(alerts).values({
-        tenantId: user.tenantId,
-        userId: user.id,
-        name,
-        channel,
-        type,
-        threshold,
-        config: config || {},
-        isActive: isActive ?? true,
-      }).returning();
+      const [newAlert] = await db()
+        .insert(alerts)
+        .values({
+          tenantId: user.tenantId,
+          userId: user.id,
+          name,
+          channel,
+          type,
+          threshold,
+          config: config || {},
+          isActive: isActive ?? true,
+        })
+        .returning();
 
       return reply.code(201).send(newAlert);
-    }
+    },
   );
 
   fastify.put(
@@ -109,8 +134,19 @@ const alertsRoutes: FastifyPluginAsync = async (fastify) => {
           type: "object",
           properties: {
             name: { type: "string", minLength: 1, maxLength: 255 },
-            channel: { type: "string", enum: ["email", "webhook", "slack", "discord"] },
-            type: { type: "string", enum: ["quota_warning", "rate_limit_exceeded", "api_key_expiring", "error_rate_spike"] },
+            channel: {
+              type: "string",
+              enum: ["email", "webhook", "slack", "discord"],
+            },
+            type: {
+              type: "string",
+              enum: [
+                "quota_warning",
+                "rate_limit_exceeded",
+                "api_key_expiring",
+                "error_rate_spike",
+              ],
+            },
             threshold: { type: "integer", minimum: 1, maximum: 100 },
             config: { type: "object" },
             isActive: { type: "boolean" },
@@ -128,15 +164,25 @@ const alertsRoutes: FastifyPluginAsync = async (fastify) => {
       const data = request.body as Partial<{
         name: string;
         channel: "email" | "webhook" | "slack" | "discord";
-        type: "quota_warning" | "rate_limit_exceeded" | "api_key_expiring" | "error_rate_spike";
+        type:
+          | "quota_warning"
+          | "rate_limit_exceeded"
+          | "api_key_expiring"
+          | "error_rate_spike";
         threshold: number;
         config: object;
         isActive: boolean;
       }>;
 
-      const [updated] = await db().update(alerts)
+      const [updated] = await db()
+        .update(alerts)
         .set({ ...data, updatedAt: new Date() })
-        .where(and(eq(alerts.id, Number(alertId)), eq(alerts.tenantId, user.tenantId)))
+        .where(
+          and(
+            eq(alerts.id, Number(alertId)),
+            eq(alerts.tenantId, user.tenantId),
+          ),
+        )
         .returning();
 
       if (!updated) {
@@ -144,7 +190,7 @@ const alertsRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       return reply.code(200).send(updated);
-    }
+    },
   );
 
   fastify.delete(
@@ -166,8 +212,14 @@ const alertsRoutes: FastifyPluginAsync = async (fastify) => {
 
       const { alertId } = request.params as { alertId: string };
 
-      const [deleted] = await db().delete(alerts)
-        .where(and(eq(alerts.id, Number(alertId)), eq(alerts.tenantId, user.tenantId)))
+      const [deleted] = await db()
+        .delete(alerts)
+        .where(
+          and(
+            eq(alerts.id, Number(alertId)),
+            eq(alerts.tenantId, user.tenantId),
+          ),
+        )
         .returning();
 
       if (!deleted) {
@@ -175,7 +227,7 @@ const alertsRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       return reply.code(200).send({ success: true, message: "Alert deleted" });
-    }
+    },
   );
 
   fastify.get(
@@ -209,14 +261,18 @@ const alertsRoutes: FastifyPluginAsync = async (fastify) => {
         conditions.push(eq(webhooks.isActive, isActive));
       }
 
-      const userWebhooks = await db().select().from(webhooks)
+      const userWebhooks = await db()
+        .select()
+        .from(webhooks)
         .where(and(...conditions))
         .orderBy(desc(webhooks.createdAt))
         .limit(limit || 50)
         .offset(offset || 0);
 
-      return reply.code(200).send({ webhooks: userWebhooks, count: userWebhooks.length });
-    }
+      return reply
+        .code(200)
+        .send({ webhooks: userWebhooks, count: userWebhooks.length });
+    },
   );
 
   fastify.post(
@@ -232,7 +288,13 @@ const alertsRoutes: FastifyPluginAsync = async (fastify) => {
               type: "array",
               items: {
                 type: "string",
-                enum: ["quota_warning", "rate_limit_exceeded", "api_key_expiring", "error_rate_spike", "strategy_changed"],
+                enum: [
+                  "quota_warning",
+                  "rate_limit_exceeded",
+                  "api_key_expiring",
+                  "error_rate_spike",
+                  "strategy_changed",
+                ],
               },
               minItems: 1,
             },
@@ -257,17 +319,20 @@ const alertsRoutes: FastifyPluginAsync = async (fastify) => {
         isActive?: boolean;
       };
 
-      const [newWebhook] = await db().insert(webhooks).values({
-        userId,
-        url,
-        events,
-        secret,
-        headers: headers || {},
-        isActive: isActive ?? true,
-      }).returning();
+      const [newWebhook] = await db()
+        .insert(webhooks)
+        .values({
+          userId,
+          url,
+          events,
+          secret,
+          headers: headers || {},
+          isActive: isActive ?? true,
+        })
+        .returning();
 
       return reply.code(201).send(newWebhook);
-    }
+    },
   );
 
   fastify.put(
@@ -309,9 +374,12 @@ const alertsRoutes: FastifyPluginAsync = async (fastify) => {
         isActive: boolean;
       }>;
 
-      const [updated] = await db().update(webhooks)
+      const [updated] = await db()
+        .update(webhooks)
         .set({ ...data, updatedAt: new Date() })
-        .where(and(eq(webhooks.id, Number(webhookId)), eq(webhooks.userId, userId)))
+        .where(
+          and(eq(webhooks.id, Number(webhookId)), eq(webhooks.userId, userId)),
+        )
         .returning();
 
       if (!updated) {
@@ -319,7 +387,7 @@ const alertsRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       return reply.code(200).send(updated);
-    }
+    },
   );
 
   fastify.delete(
@@ -341,16 +409,21 @@ const alertsRoutes: FastifyPluginAsync = async (fastify) => {
 
       const { webhookId } = request.params as { webhookId: string };
 
-      const [deleted] = await db().delete(webhooks)
-        .where(and(eq(webhooks.id, Number(webhookId)), eq(webhooks.userId, userId)))
+      const [deleted] = await db()
+        .delete(webhooks)
+        .where(
+          and(eq(webhooks.id, Number(webhookId)), eq(webhooks.userId, userId)),
+        )
         .returning();
 
       if (!deleted) {
         throw new ResourceNotFoundError("Webhook not found");
       }
 
-      return reply.code(200).send({ success: true, message: "Webhook deleted" });
-    }
+      return reply
+        .code(200)
+        .send({ success: true, message: "Webhook deleted" });
+    },
   );
 
   fastify.post(
@@ -373,7 +446,10 @@ const alertsRoutes: FastifyPluginAsync = async (fastify) => {
       const { webhookId } = request.params as { webhookId: string };
 
       const webhook = await db().query.webhooks.findFirst({
-        where: and(eq(webhooks.id, Number(webhookId)), eq(webhooks.userId, userId)),
+        where: and(
+          eq(webhooks.id, Number(webhookId)),
+          eq(webhooks.userId, userId),
+        ),
       });
 
       if (!webhook) {
@@ -400,7 +476,9 @@ const alertsRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.code(200).send({
           success: response.ok,
           statusCode: response.status,
-          message: response.ok ? "Webhook test successful" : "Webhook test failed",
+          message: response.ok
+            ? "Webhook test successful"
+            : "Webhook test failed",
         });
       } catch (error) {
         return reply.code(200).send({
@@ -409,7 +487,7 @@ const alertsRoutes: FastifyPluginAsync = async (fastify) => {
           message: "Failed to reach webhook endpoint",
         });
       }
-    }
+    },
   );
 };
 

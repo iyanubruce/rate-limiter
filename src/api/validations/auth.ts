@@ -36,9 +36,9 @@ export const loginSchema: FastifySchema = {
 export const refreshTokenSchema: FastifySchema = {
   body: {
     type: "object",
-    required: ["refreshToken"],
+    required: ["token"],
     properties: {
-      refreshToken: { type: "string" },
+      token: { type: "string" },
     },
   },
 };

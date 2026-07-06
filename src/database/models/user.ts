@@ -8,8 +8,6 @@ import {
   pgEnum,
 } from "drizzle-orm/pg-core";
 
-export const userRoleEnum = pgEnum("user_role", ["admin", "user"]);
-export type userRole = (typeof userRoleEnum.enumValues)[number];
 import { apiKeys } from "./api-keys";
 import {
   relations,
@@ -17,7 +15,9 @@ import {
   type InferInsertModel,
 } from "drizzle-orm";
 import { tenants } from "./tenants";
-export const roleEnum = pgEnum("user_role", ["admin", "user"]);
+
+export const userRoleEnum = pgEnum("user_role", ["admin", "user"]);
+export type userRole = (typeof userRoleEnum.enumValues)[number];
 
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),

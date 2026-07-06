@@ -368,15 +368,31 @@ export default class RedisClient {
   async getQuotaStatus(
     key: string,
     strategy: string,
+    limit: number,
   ): Promise<{ remaining: number; total: number }> {
     try {
-      if (strategy === "sliding_window") {
-        const count = await this.client.zcard(key);
-        return { remaining: count, total: count };
-      } else {
-        const data = await this.client.hgetall(key);
-        const tokens = parseFloat(data.tokens || "0");
-        return { remaining: Math.floor(tokens), total: Math.floor(tokens) };
+      switch (strategy) {
+        case "sliding_window": {
+          const count = await this.client.zcard(key);
+          return { remaining: Math.max(0, limit - count), total: limit };
+        }
+        case "token_bucket": {
+          const data = await this.client.hmget(key, "tokens", "last_refill");
+          const tokens = parseFloat(data[0] ?? "0");
+          return { remaining: Math.floor(tokens), total: limit };
+        }
+        case "leaky_bucket": {
+          const data = await this.client.hmget(key, "water", "last_leak");
+          const water = parseFloat(data[0] ?? "0");
+          return { remaining: Math.max(0, Math.floor(limit - water)), total: limit };
+        }
+        case "fixed_window": {
+          const raw = await this.client.get(key);
+          const count = parseInt(raw ?? "0");
+          return { remaining: Math.max(0, limit - count), total: limit };
+        }
+        default:
+          return { remaining: 0, total: limit };
       }
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);

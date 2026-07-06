@@ -7,6 +7,8 @@ export interface KeyMetadata {
   tenantId: string;
   plan: string;
   strategy: string;
+  quota?: number;
+  window?: number;
   rateLimitOverride?: {
     requestsPerSecond?: number;
     burstSize?: number;

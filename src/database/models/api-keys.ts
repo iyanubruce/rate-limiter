@@ -7,7 +7,11 @@ import {
   jsonb,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
-import { type InferSelectModel, type InferInsertModel } from "drizzle-orm";
+import {
+  relations,
+  type InferSelectModel,
+  type InferInsertModel,
+} from "drizzle-orm";
 import { users } from "./user";
 import { tenants } from "./tenants";
 // types/rate-limit.ts
@@ -46,7 +50,7 @@ export const apiKeys = pgTable(
       .references(() => tenants.id)
       .default("org_1"),
 
-    name: varchar("name", { length: 100 }).notNull(), // "Production App"
+    name: varchar("name", { length: 100 }).notNull().unique(), // "Production App"
     description: varchar("description", { length: 255 }),
 
     // 🔑 Permissions & Quotas
@@ -76,6 +80,17 @@ export const apiKeys = pgTable(
     };
   },
 );
+
+export const apiKeysRelations = relations(apiKeys, ({ one }) => ({
+  user: one(users, {
+    fields: [apiKeys.userId],
+    references: [users.id],
+  }),
+  tenant: one(tenants, {
+    fields: [apiKeys.tenantId],
+    references: [tenants.id],
+  }),
+}));
 
 export type ApiKey = InferSelectModel<typeof apiKeys>;
 export type ApiKeyInsert = InferInsertModel<typeof apiKeys>;

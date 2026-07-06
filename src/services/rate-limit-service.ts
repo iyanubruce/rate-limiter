@@ -5,6 +5,8 @@ import { ratelimitEventQueue } from "../jobs/queues/queue";
 import { createHash } from "crypto";
 import logger from "../utils/logger";
 import ApiKeyRepo from "../database/repositories/api-keys";
+import type { ApiKey } from "../database/models/api-keys";
+import type { Tenant } from "../database/models/tenants";
 import type { KeyMetadata } from "../traffic/handlers/checkRateLimit/types";
 
 export interface RateLimitCheckResult {
@@ -39,7 +41,9 @@ export default class RateLimitService {
     this.apiKeyRepo = new ApiKeyRepo(trafficDb);
   }
 
-  async checkRateLimit(params: RateLimitCheckParams): Promise<RateLimitCheckResult> {
+  async checkRateLimit(
+    params: RateLimitCheckParams,
+  ): Promise<RateLimitCheckResult> {
     const startTime = Date.now();
     const {
       tenantId,
@@ -65,21 +69,34 @@ export default class RateLimitService {
 
     if (keyMetadataStr) {
       keyMetadata = JSON.parse(keyMetadataStr);
-
       if (keyMetadata.tenantId !== tenantId) {
         return {
           allowed: false,
           remaining: 0,
           resetAt: Date.now(),
           limit: quota,
-          strategy: strategy as string,
+          strategy,
           blockedReason: "api_key_mismatch",
         };
       }
 
       this.redis.client.expire(redisKey, 3600).catch(() => {});
     } else {
-      const databaseKey = await this.apiKeyRepo.findApiKeyByKeyHash(keyHash);
+      const databaseKey = (await this.apiKeyRepo.findApiKeyByKeyHash({
+        data: { keyHash },
+        include: {
+          tenant: {
+            columns: {
+              plan: true,
+              quota: true,
+              strategy: true,
+              windowSeconds: true,
+            },
+          },
+        },
+      })) as ApiKey & {
+        tenant?: Pick<Tenant, "plan" | "quota" | "strategy" | "windowSeconds">;
+      };
 
       if (!databaseKey || databaseKey.tenantId !== tenantId) {
         return {
@@ -87,7 +104,7 @@ export default class RateLimitService {
           remaining: 0,
           resetAt: Date.now(),
           limit: quota,
-          strategy: strategy as string,
+          strategy,
           blockedReason: "api_key_not_found_or_revoked",
         };
       }
@@ -97,20 +114,38 @@ export default class RateLimitService {
         userId: databaseKey.userId,
         tenantId: databaseKey.tenantId,
         scopes: databaseKey.scopes || [],
-        rateLimitOverride: databaseKey.rateLimitOverride as any,
+        plan: databaseKey.tenant?.plan ?? config.rateLimit.defaultStrategy,
+        strategy:
+          databaseKey.tenant?.strategy ?? config.rateLimit.defaultStrategy,
+        quota: databaseKey.tenant?.quota ?? config.rateLimit.defaultQuota,
+        window:
+          databaseKey.tenant?.windowSeconds ?? config.rateLimit.defaultWindow,
+        rateLimitOverride: databaseKey.rateLimitOverride ?? undefined,
         expiresAt: databaseKey.expiresAt
           ? databaseKey.expiresAt.toISOString()
           : null,
         revokedAt: null,
       };
 
-      await this.redis.client.setex(redisKey, 3600, JSON.stringify(keyMetadata));
+      await this.redis.client.setex(
+        redisKey,
+        3600,
+        JSON.stringify(keyMetadata),
+      );
     }
 
     apiKeyId = keyMetadata.id;
 
+    if (keyMetadata.plan && keyMetadata.quota && keyMetadata.window) {
+      quota = keyMetadata.quota;
+      window = keyMetadata.window;
+      strategy = keyMetadata.strategy || config.rateLimit.defaultStrategy;
+    }
+
     if (keyMetadata.rateLimitOverride) {
-      quota = keyMetadata.rateLimitOverride.requestsPerSecond || config.rateLimit.defaultQuota;
+      quota =
+        keyMetadata.rateLimitOverride.requestsPerSecond ||
+        config.rateLimit.defaultQuota;
       window = keyMetadata.rateLimitOverride.windowMs
         ? keyMetadata.rateLimitOverride.windowMs / 1000
         : config.rateLimit.defaultWindow;
@@ -133,12 +168,20 @@ export default class RateLimitService {
         executionKey,
         quota,
         window,
-        strategy as "token_bucket" | "sliding_window" | "leaky_bucket" | "fixed_window",
+        strategy as
+          | "token_bucket"
+          | "sliding_window"
+          | "leaky_bucket"
+          | "fixed_window",
         weight,
       );
     } catch (error) {
       logger.error("Rate limit check failed", { error, identifier });
-      result = { allowed: true, remaining: quota - 1, resetAt: Date.now() + window * 1000 };
+      result = {
+        allowed: true,
+        remaining: quota - 1,
+        resetAt: Date.now() + window * 1000,
+      };
     }
 
     const remainingQuota = result.remaining;
@@ -164,7 +207,7 @@ export default class RateLimitService {
         remaining: 0,
         resetAt: result.resetAt,
         limit: quota,
-        strategy: strategy as string,
+        strategy,
         retryAfter: Math.ceil((result.resetAt - Date.now()) / 1000),
         blockedReason: "quota_exceeded",
       };
@@ -175,19 +218,12 @@ export default class RateLimitService {
       remaining: remainingQuota,
       resetAt: result.resetAt,
       limit: quota,
-      strategy: strategy as string,
+      strategy,
     };
   }
 
   async checkBatchRateLimits(
-    requests: Array<{
-      tenantId: string;
-      identifier: string;
-      apiKey: string;
-      endpoint?: string;
-      method?: string;
-      weight?: number;
-    }>
+    requests: Array<Pick<RateLimitCheckParams, "tenantId" | "identifier" | "apiKey" | "endpoint" | "method" | "weight">>,
   ): Promise<Array<RateLimitCheckResult & { identifier: string }>> {
     const results = await Promise.all(
       requests.map(async (req) => {
@@ -200,7 +236,7 @@ export default class RateLimitService {
           weight: req.weight,
         });
         return { ...result, identifier: req.identifier };
-      })
+      }),
     );
     return results;
   }

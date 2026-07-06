@@ -1,15 +1,22 @@
-import { parseWhereQueryForListApiKeys } from "../../helpers/api-key";
+import {
+  parseWhereQueryForListApiKeys,
+  validateRateLimitOverride,
+} from "../../helpers/api-key";
 import type {
   ListKeysInterface,
   CreateKeyInput,
+  UpdateKeyInput,
 } from "../../interfaces/api-key";
 import ApiKeyRepo from "../../database/repositories/api-keys";
 import { db } from "../../config/database";
 import { tenants } from "../../database/models";
 import { eq } from "drizzle-orm";
 import { createHash, randomBytes } from "crypto";
-import { BadRequestError, InternalServerError } from "../../error";
-import { PLAN_STRATEGIES } from "../../interfaces/strategies";
+import {
+  BadRequestError,
+  InternalServerError,
+  ResourceNotFoundError,
+} from "../../error";
 import Redis from "../../services/redis";
 import config from "../../config/env";
 
@@ -41,7 +48,11 @@ export async function listKeys(data: ListKeysInterface, userId: number) {
   };
 }
 
-export async function createKey(data: CreateKeyInput, userId: number, tenantId: string) {
+export async function createKey(
+  data: CreateKeyInput,
+  userId: number,
+  tenantId: string,
+) {
   const {
     name,
     description,
@@ -71,15 +82,7 @@ export async function createKey(data: CreateKeyInput, userId: number, tenantId: 
     .from(tenants)
     .where(eq(tenants.id, tenantId));
 
-  if (rateLimitOverride?.strategy) {
-    const normalized = rateLimitOverride.strategy.replace(/-/g, "_");
-    const allowed = PLAN_STRATEGIES[tenant?.plan ?? "free"] ?? [];
-    if (!allowed.includes(normalized)) {
-      throw new BadRequestError(
-        `Strategy "${rateLimitOverride.strategy}" is not allowed on the ${tenant?.plan ?? "free"} plan. Allowed strategies: ${allowed.join(", ")}`,
-      );
-    }
-  }
+  validateRateLimitOverride(rateLimitOverride, tenant?.plan ?? "free");
 
   const newKey = await db().transaction(async (transaction) => {
     const inserted = await apiKeyRepository.createApiKey(
@@ -136,16 +139,7 @@ export async function updateKey(
   keyId: number,
   userId: number,
   tenantId: string,
-  data: {
-    name?: string;
-    description?: string;
-    scopes?: string[];
-    rateLimitOverride?: {
-      strategy?: "token-bucket" | "sliding-window" | "fixed-window";
-      requestsPerSecond?: number;
-      burstSize?: number;
-    } | null;
-  },
+  data: UpdateKeyInput,
 ) {
   const existing = await apiKeyRepository.getApiKeyById(keyId);
   if (!existing) throw new BadRequestError("API key not found");
@@ -154,24 +148,20 @@ export async function updateKey(
     throw new BadRequestError("Not authorized to update this key");
 
   if (data.name) {
-    const duplicateKey = await apiKeyRepository.findApiKey(userId, data.name);
+    const duplicateKey = await apiKeyRepository.findApiKey({
+      data: { userId, name: data.name },
+    });
     if (duplicateKey)
       throw new BadRequestError("A key with this name already exists");
   }
 
-  if (data.rateLimitOverride?.strategy) {
+  if (data.rateLimitOverride) {
     const [tenant] = await db()
       .select({ plan: tenants.plan })
       .from(tenants)
       .where(eq(tenants.id, tenantId));
 
-    const normalized = data.rateLimitOverride.strategy.replace(/-/g, "_");
-    const allowed = PLAN_STRATEGIES[tenant?.plan ?? "free"] ?? [];
-    if (!allowed.includes(normalized)) {
-      throw new BadRequestError(
-        `Strategy "${data.rateLimitOverride.strategy}" is not allowed on the ${tenant?.plan ?? "free"} plan. Allowed strategies: ${allowed.join(", ")}`,
-      );
-    }
+    validateRateLimitOverride(data.rateLimitOverride, tenant?.plan ?? "free");
   }
 
   const updated = await apiKeyRepository.updateApiKey(keyId, data);
@@ -180,23 +170,22 @@ export async function updateKey(
 
 export async function deleteKey(keyId: number, userId: number) {
   const existing = await apiKeyRepository.getApiKeyById(keyId);
-  if (!existing) throw new BadRequestError("API key not found");
+  if (!existing) throw new ResourceNotFoundError("API key not found");
 
   if (existing.userId !== userId)
     throw new BadRequestError("Not authorized to delete this key");
   if (existing.revokedAt) throw new BadRequestError("Key already deleted");
-  const revoked = await db().transaction(async (transaction) => {
-    const revokedKey = await apiKeyRepository.revokeApiKey(keyId);
-    await redis.client.del(`key:${existing.keyHash}`);
-    return revokedKey;
-  });
-  return revoked;
+
+  const deleted = await apiKeyRepository.deleteApiKeyById(keyId);
+  await redis.client.del(`key:${existing.keyHash}`);
+
+  return deleted;
 }
 
 export async function getKeyById(keyId: number, userId: number) {
   const key = await apiKeyRepository.getApiKeyByIdAndUserId(keyId, userId);
   if (!key) {
-    throw new BadRequestError("API key not found");
+    throw new ResourceNotFoundError("API key not found");
   }
   const { keyHash, ...safeKey } = key;
   return safeKey;

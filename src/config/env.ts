@@ -96,7 +96,7 @@ const config: Config = {
     defaultStrategy:
       (process.env
         .DEFAULT_STRATEGY as Config["rateLimit"]["defaultStrategy"]) ||
-      "token_bucket",
+      "fixed_window",
     defaultQuota: parseInt(process.env.DEFAULT_QUOTA || "1000"),
     defaultWindow: parseInt(process.env.DEFAULT_WINDOW || "60"),
   },
@@ -111,8 +111,7 @@ const config: Config = {
       pro: process.env.STRIPE_PRICE_PRO || "",
       enterprise: process.env.STRIPE_PRICE_ENTERPRISE || "",
     },
-    successUrl:
-      process.env.STRIPE_SUCCESS_URL || "https://example.com/success",
+    successUrl: process.env.STRIPE_SUCCESS_URL || "https://example.com/success",
     cancelUrl: process.env.STRIPE_CANCEL_URL || "https://example.com/cancel",
   },
   alerts: {

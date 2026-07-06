@@ -22,28 +22,6 @@ export const registerSchema: FastifySchema = {
   },
 };
 
-export const googleAuthSchema: FastifySchema = {
-  body: {
-    type: "object",
-    required: [
-      "googleId",
-      "email",
-      "organizationEmail",
-      "organizationName",
-      "firstName",
-      "lastName",
-    ],
-    properties: {
-      googleId: { type: "string" },
-      email: { type: "string", format: "email" },
-      organizationEmail: { type: "string" },
-      organizationName: { type: "string" },
-      firstName: { type: "string" },
-      lastName: { type: "string" },
-    },
-  },
-};
-
 export const loginSchema: FastifySchema = {
   body: {
     type: "object",

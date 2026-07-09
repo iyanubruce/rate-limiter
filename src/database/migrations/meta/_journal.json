@@ -43,6 +43,13 @@
       "when": 1781012345000,
       "tag": "0005_add_stripe_customer_id",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1783575417385,
+      "tag": "0006_lame_jimmy_woo",
+      "breakpoints": true
     }
   ]
 }

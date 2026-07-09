@@ -5,6 +5,7 @@ import { ratelimitEventQueue } from "../jobs/queues/queue";
 import { createHash } from "crypto";
 import logger from "../utils/logger";
 import ApiKeyRepo from "../database/repositories/api-keys";
+import { alertCheckQueue } from "../jobs/queues/alert-check-queue";
 import type { ApiKey } from "../database/models/api-keys";
 import type { Tenant } from "../database/models/tenants";
 import type { KeyMetadata } from "../traffic/handlers/checkRateLimit/types";
@@ -56,170 +57,46 @@ export default class RateLimitService {
       userAgent = "UNKNOWN",
     } = params;
 
-    let quota = config.rateLimit.defaultQuota;
-    let window = config.rateLimit.defaultWindow;
-    let strategy: string = config.rateLimit.defaultStrategy;
-    let keyMetadata: KeyMetadata;
-    let apiKeyId: number;
+    const keyHash = this.getKeyHash(apiKey);
 
-    const keyHash = createHash("sha256").update(apiKey).digest("hex");
-    const redisKey = `key:${keyHash}`;
-
-    const keyMetadataStr = await this.redis.client.get(redisKey);
-
-    if (keyMetadataStr) {
-      keyMetadata = JSON.parse(keyMetadataStr);
-      if (keyMetadata.tenantId !== tenantId) {
-        return {
-          allowed: false,
-          remaining: 0,
-          resetAt: Date.now(),
-          limit: quota,
-          strategy,
-          blockedReason: "api_key_mismatch",
-        };
-      }
-
-      this.redis.client.expire(redisKey, 3600).catch(() => {});
-    } else {
-      const databaseKey = (await this.apiKeyRepo.findApiKeyByKeyHash({
-        data: { keyHash },
-        include: {
-          tenant: {
-            columns: {
-              plan: true,
-              quota: true,
-              strategy: true,
-              windowSeconds: true,
-            },
-          },
-        },
-      })) as ApiKey & {
-        tenant?: Pick<Tenant, "plan" | "quota" | "strategy" | "windowSeconds">;
-      };
-
-      if (!databaseKey || databaseKey.tenantId !== tenantId) {
-        return {
-          allowed: false,
-          remaining: 0,
-          resetAt: Date.now(),
-          limit: quota,
-          strategy,
-          blockedReason: "api_key_not_found_or_revoked",
-        };
-      }
-
-      keyMetadata = {
-        id: databaseKey.id,
-        userId: databaseKey.userId,
-        tenantId: databaseKey.tenantId,
-        scopes: databaseKey.scopes || [],
-        plan: databaseKey.tenant?.plan ?? "free",
-        strategy:
-          databaseKey.tenant?.strategy ?? config.rateLimit.defaultStrategy,
-        quota: databaseKey.tenant?.quota ?? config.rateLimit.defaultQuota,
-        window:
-          databaseKey.tenant?.windowSeconds ?? config.rateLimit.defaultWindow,
-        rateLimitOverride: databaseKey.rateLimitOverride ?? undefined,
-        expiresAt: databaseKey.expiresAt
-          ? databaseKey.expiresAt.toISOString()
-          : null,
-        revokedAt: null,
-      };
-
-      await this.redis.client.setex(
-        redisKey,
-        3600,
-        JSON.stringify(keyMetadata),
+    const keyMetadata = await this.resolveKeyMetadata(keyHash, tenantId);
+    if (!keyMetadata) {
+      return this.buildBlockedResponse(
+        config.rateLimit.defaultQuota,
+        config.rateLimit.defaultStrategy,
+        "api_key_mismatch",
       );
     }
 
-    apiKeyId = keyMetadata.id;
+    const { quota, window, strategy } = this.resolveRateLimitConfig(keyMetadata);
 
-    if (keyMetadata.plan && keyMetadata.quota && keyMetadata.window) {
-      quota = keyMetadata.quota;
-      window = keyMetadata.window;
-      strategy = keyMetadata.strategy || config.rateLimit.defaultStrategy;
-    }
+    const executionKey = this.buildRateLimitExecutionKey(
+      tenantId, identifier, strategy, window, endpoint, method,
+    );
 
-    if (keyMetadata.rateLimitOverride) {
-      quota =
-        keyMetadata.rateLimitOverride.requestsPerSecond ||
-        config.rateLimit.defaultQuota;
-      window = keyMetadata.rateLimitOverride.windowMs
-        ? keyMetadata.rateLimitOverride.windowMs / 1000
-        : config.rateLimit.defaultWindow;
-      strategy = keyMetadata.rateLimitOverride.strategy || strategy;
-    }
+    const result = await this.executeRateCheck(
+      executionKey, quota, window, strategy, weight, identifier,
+    );
 
-    const routePath = endpoint && method ? `:${method}:${endpoint}` : "";
-    const rateLimitKey = `ratelimit:${tenantId}:${identifier}${routePath}`;
-    const now = Date.now();
-
-    let executionKey = rateLimitKey;
-    if (strategy === "fixed_window") {
-      const currentWindow = Math.floor(now / (window * 1000));
-      executionKey = `${rateLimitKey}:${currentWindow}`;
-    }
-
-    let result: { allowed: boolean; remaining: number; resetAt: number };
-    try {
-      result = await this.redis.checkRateLimit(
-        executionKey,
-        quota,
-        window,
-        strategy as
-          | "token_bucket"
-          | "sliding_window"
-          | "leaky_bucket"
-          | "fixed_window",
-        weight,
-      );
-    } catch (error) {
-      logger.error("Rate limit check failed", { error, identifier });
-      result = {
-        allowed: true,
-        remaining: quota - 1,
-        resetAt: Date.now() + window * 1000,
-      };
-    }
-
-    const remainingQuota = result.remaining;
-
-    ratelimitEventQueue.add("log-event", {
-      time: new Date(),
+    this.fireAnalyticsEvent({
+      startTime,
       tenantId,
-      apiKeyId,
+      apiKeyId: keyMetadata.id,
       ipAddress,
-      endpoint: endpoint || "/",
-      method: method || "GET",
+      endpoint,
+      method,
       userAgent,
-      statusCode: result.allowed ? 200 : 429,
-      requestDurationMs: Date.now() - startTime,
-      responseSize: 0,
-      isBlocked: !result.allowed,
-      remainingQuota,
+      allowed: result.allowed,
+      remainingQuota: result.remaining,
     });
 
     if (!result.allowed) {
-      return {
-        allowed: false,
-        remaining: 0,
-        resetAt: result.resetAt,
-        limit: quota,
-        strategy,
-        retryAfter: Math.ceil((result.resetAt - Date.now()) / 1000),
-        blockedReason: "quota_exceeded",
-      };
+      return this.buildBlockedResponse(quota, strategy, "quota_exceeded", result.resetAt);
     }
 
-    return {
-      allowed: true,
-      remaining: remainingQuota,
-      resetAt: result.resetAt,
-      limit: quota,
-      strategy,
-    };
+    this.fireAlertCheck(tenantId, keyMetadata.userId, result.remaining, quota);
+
+    return this.buildAllowedResponse(result.remaining, result.resetAt, quota, strategy);
   }
 
   async checkBatchRateLimits(
@@ -239,5 +116,196 @@ export default class RateLimitService {
       }),
     );
     return results;
+  }
+
+  private getKeyHash(apiKey: string): string {
+    return createHash("sha256").update(apiKey).digest("hex");
+  }
+
+  private async resolveKeyMetadata(
+    keyHash: string,
+    tenantId: string,
+  ): Promise<KeyMetadata | null> {
+    const redisKey = `key:${keyHash}`;
+    const cached = await this.redis.client.get(redisKey);
+
+    if (cached) {
+      const meta: KeyMetadata = JSON.parse(cached);
+      if (meta.tenantId !== tenantId) return null;
+      this.redis.client.expire(redisKey, 3600).catch(() => {});
+      return meta;
+    }
+
+    const databaseKey = (await this.apiKeyRepo.findApiKeyByKeyHash({
+      data: { keyHash },
+      include: {
+        tenant: {
+          columns: {
+            plan: true,
+            quota: true,
+            strategy: true,
+            windowSeconds: true,
+          },
+        },
+      },
+    })) as ApiKey & {
+      tenant?: Pick<Tenant, "plan" | "quota" | "strategy" | "windowSeconds">;
+    };
+
+    if (!databaseKey || databaseKey.tenantId !== tenantId) return null;
+
+    const meta: KeyMetadata = {
+      id: databaseKey.id,
+      userId: databaseKey.userId,
+      tenantId: databaseKey.tenantId,
+      scopes: databaseKey.scopes || [],
+      plan: databaseKey.tenant?.plan ?? "free",
+      strategy: databaseKey.tenant?.strategy ?? config.rateLimit.defaultStrategy,
+      quota: databaseKey.tenant?.quota ?? config.rateLimit.defaultQuota,
+      window: databaseKey.tenant?.windowSeconds ?? config.rateLimit.defaultWindow,
+      rateLimitOverride: databaseKey.rateLimitOverride ?? undefined,
+      expiresAt: databaseKey.expiresAt ? databaseKey.expiresAt.toISOString() : null,
+      revokedAt: null,
+    };
+
+    await this.redis.client.setex(redisKey, 3600, JSON.stringify(meta));
+    return meta;
+  }
+
+  private resolveRateLimitConfig(
+    keyMetadata: KeyMetadata,
+  ): { quota: number; window: number; strategy: string } {
+    const defaults = {
+      quota: config.rateLimit.defaultQuota,
+      window: config.rateLimit.defaultWindow,
+      strategy: config.rateLimit.defaultStrategy as string,
+    };
+
+    let { quota, window, strategy } = defaults;
+
+    if (keyMetadata.plan && keyMetadata.quota && keyMetadata.window) {
+      quota = keyMetadata.quota;
+      window = keyMetadata.window;
+      strategy = keyMetadata.strategy || defaults.strategy;
+    }
+
+    if (keyMetadata.rateLimitOverride) {
+      quota = keyMetadata.rateLimitOverride.requestsPerSecond || defaults.quota;
+      window = keyMetadata.rateLimitOverride.windowMs
+        ? keyMetadata.rateLimitOverride.windowMs / 1000
+        : defaults.window;
+      strategy = keyMetadata.rateLimitOverride.strategy || strategy;
+    }
+
+    return { quota, window, strategy };
+  }
+
+  private buildRateLimitExecutionKey(
+    tenantId: string,
+    identifier: string,
+    strategy: string,
+    window: number,
+    endpoint?: string,
+    method?: string,
+  ): string {
+    const routePath = endpoint && method ? `:${method}:${endpoint}` : "";
+    const key = `ratelimit:${tenantId}:${identifier}${routePath}`;
+
+    if (strategy === "fixed_window") {
+      const currentWindow = Math.floor(Date.now() / (window * 1000));
+      return `${key}:${currentWindow}`;
+    }
+
+    return key;
+  }
+
+  private async executeRateCheck(
+    executionKey: string,
+    quota: number,
+    window: number,
+    strategy: string,
+    weight: number,
+    identifier: string,
+  ): Promise<{ allowed: boolean; remaining: number; resetAt: number }> {
+    try {
+      return await this.redis.checkRateLimit(
+        executionKey,
+        quota,
+        window,
+        strategy as "token_bucket" | "sliding_window" | "leaky_bucket" | "fixed_window",
+        weight,
+      );
+    } catch (error) {
+      logger.error("Rate limit check failed", { error, identifier });
+      return {
+        allowed: true,
+        remaining: quota - 1,
+        resetAt: Date.now() + window * 1000,
+      };
+    }
+  }
+
+  private fireAnalyticsEvent(params: {
+    startTime: number;
+    tenantId: string;
+    apiKeyId: number;
+    ipAddress: string;
+    endpoint?: string;
+    method?: string;
+    userAgent: string;
+    allowed: boolean;
+    remainingQuota: number;
+  }): void {
+    const { startTime, tenantId, apiKeyId, ipAddress, endpoint, method, userAgent, allowed, remainingQuota } = params;
+
+    ratelimitEventQueue.add("log-event", {
+      time: new Date(),
+      tenantId,
+      apiKeyId,
+      ipAddress,
+      endpoint: endpoint || "/",
+      method: method || "GET",
+      userAgent,
+      statusCode: allowed ? 200 : 429,
+      requestDurationMs: Date.now() - startTime,
+      responseSize: 0,
+      isBlocked: !allowed,
+      remainingQuota,
+    }).catch(() => {});
+  }
+
+  private fireAlertCheck(
+    tenantId: string,
+    userId: number,
+    remaining: number,
+    quota: number,
+  ): void {
+    alertCheckQueue.add("check", { tenantId, userId, remaining, quota }).catch(() => {});
+  }
+
+  private buildAllowedResponse(
+    remaining: number,
+    resetAt: number,
+    limit: number,
+    strategy: string,
+  ): RateLimitCheckResult {
+    return { allowed: true, remaining, resetAt, limit, strategy };
+  }
+
+  private buildBlockedResponse(
+    limit: number,
+    strategy: string,
+    blockedReason: string,
+    resetAt?: number,
+  ): RateLimitCheckResult {
+    return {
+      allowed: false,
+      remaining: 0,
+      resetAt: resetAt ?? Date.now(),
+      limit,
+      strategy,
+      ...(blockedReason === "quota_exceeded" ? { retryAfter: Math.ceil(((resetAt ?? Date.now()) - Date.now()) / 1000) } : {}),
+      blockedReason,
+    };
   }
 }

@@ -1,15 +1,15 @@
-import OpenAI from "openai";
+import Groq from "groq-sdk";
 import config from "../config/env";
 import logger from "../utils/logger";
 
-let client: OpenAI | null = null;
+let client: Groq | null = null;
 
-function getClient(): OpenAI {
+function getClient(): Groq {
   if (!client) {
     if (!config.ai.apiKey) {
-      throw new Error("AI_API_KEY is not configured");
+      throw new Error("GROQ_API_KEY is not configured");
     }
-    client = new OpenAI({ apiKey: config.ai.apiKey });
+    client = new Groq({ apiKey: config.ai.apiKey });
   }
   return client;
 }
@@ -37,7 +37,7 @@ interface GenerateResponse {
   toolCalls: ToolCall[];
 }
 
-function toOpenAITools(tools: ToolDefinition[]): OpenAI.Chat.ChatCompletionTool[] {
+function toGroqTools(tools: ToolDefinition[]): Groq.Chat.ChatCompletionTool[] {
   return tools.map((t) => ({
     type: "function" as const,
     function: {
@@ -67,10 +67,10 @@ function parseArguments(args: string): Record<string, unknown> {
 
 export async function generateResponse(options: GenerateOptions): Promise<GenerateResponse> {
   const { systemPrompt, userMessage, tools, maxTokens } = options;
-  const openai = getClient();
+  const groq = getClient();
 
   try {
-    const response = await openai.chat.completions.create({
+    const response = await groq.chat.completions.create({
       model: config.ai.model,
       max_tokens: maxTokens ?? 1024,
       temperature: 0.1,
@@ -79,7 +79,7 @@ export async function generateResponse(options: GenerateOptions): Promise<Genera
         { role: "user", content: userMessage },
       ],
       ...(tools && tools.length > 0
-        ? { tools: toOpenAITools(tools), tool_choice: "auto" as const }
+        ? { tools: toGroqTools(tools), tool_choice: "auto" as const }
         : {}),
     });
 
@@ -98,7 +98,7 @@ export async function generateResponse(options: GenerateOptions): Promise<Genera
     };
   } catch (error) {
     logger.error("AI service error", { error });
-    if (error instanceof OpenAI.APIError) {
+    if (error instanceof Groq.APIError) {
       throw new Error(`AI service error: ${error.status} ${error.message}`);
     }
     throw error;

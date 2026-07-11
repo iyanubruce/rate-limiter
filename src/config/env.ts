@@ -55,8 +55,8 @@ const EnvSchema = z.object({
   STRIPE_SUCCESS_URL: z.string().default("https://example.com/success"),
   STRIPE_CANCEL_URL: z.string().default("https://example.com/cancel"),
   QUOTA_WARNING_THRESHOLD: z.coerce.number().default(80),
-  AI_API_KEY: z.string().default(""),
-  AI_MODEL: z.string().default("gpt-4o-mini"),
+  GROQ_API_KEY: z.string().default(""),
+  AI_MODEL: z.string().default("openai/gpt-oss-120b"),
   LOG_LEVEL: z
     .enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"])
     .default("info"),
@@ -190,7 +190,7 @@ const config: Config = {
     quotaWarningThreshold: env.QUOTA_WARNING_THRESHOLD,
   },
   ai: {
-    apiKey: env.AI_API_KEY,
+    apiKey: env.GROQ_API_KEY,
     model: env.AI_MODEL,
   },
   logging: {

@@ -4,13 +4,18 @@ import { expand } from "dotenv-expand";
 import { z } from "zod";
 
 const StringBooleanSchema = z
-  .union([z.literal("true"), z.literal("false"), z.literal("1"), z.literal("0")])
+  .union([
+    z.literal("true"),
+    z.literal("false"),
+    z.literal("1"),
+    z.literal("0"),
+  ])
   .default("false")
   .transform((v) => v === "true" || v === "1");
 
 const envPath = path.resolve(
   process.cwd(),
-  process.env.NODE_ENV === "test" ? ".env.test" : ".env"
+  process.env.NODE_ENV === "test" ? ".env.test" : ".env",
 );
 
 expand(dotenvConfig({ override: true, path: envPath }));
@@ -45,8 +50,8 @@ const EnvSchema = z.object({
   CIRCUIT_BREAKER_TIMEOUT: z.coerce.number().default(60000),
   STRIPE_SECRET_KEY: z.string().default(""),
   STRIPE_WEBHOOK_SECRET: z.string().default(""),
-  STRIPE_PRICE_PRO: z.string().default(""),
-  STRIPE_PRICE_ENTERPRISE: z.string().default(""),
+  STRIPE_PRICE_PRO: z.string().default("pro"),
+  STRIPE_PRICE_ENTERPRISE: z.string().default("price_1TrOvTGWoI7tKhosS1car72v"),
   STRIPE_SUCCESS_URL: z.string().default("https://example.com/success"),
   STRIPE_CANCEL_URL: z.string().default("https://example.com/cancel"),
   QUOTA_WARNING_THRESHOLD: z.coerce.number().default(80),
@@ -96,7 +101,11 @@ export interface Config {
     expiresIn: number;
   };
   rateLimit: {
-    defaultStrategy: "token_bucket" | "sliding_window" | "leaky_bucket" | "fixed_window";
+    defaultStrategy:
+      | "token_bucket"
+      | "sliding_window"
+      | "leaky_bucket"
+      | "fixed_window";
     defaultQuota: number;
     defaultWindow: number;
   };

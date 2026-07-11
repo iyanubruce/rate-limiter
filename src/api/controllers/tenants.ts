@@ -46,7 +46,6 @@ export async function upgradePlan(tenantId: string, plan: Plan) {
   if (!session.url) {
     throw new InternalServerError("Failed to create checkout session");
   }
-
   return { url: session.url, sessionId: session.id };
 }
 

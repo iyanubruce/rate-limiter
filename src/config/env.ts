@@ -55,6 +55,8 @@ const EnvSchema = z.object({
   STRIPE_SUCCESS_URL: z.string().default("https://example.com/success"),
   STRIPE_CANCEL_URL: z.string().default("https://example.com/cancel"),
   QUOTA_WARNING_THRESHOLD: z.coerce.number().default(80),
+  AI_API_KEY: z.string().default(""),
+  AI_MODEL: z.string().default("gpt-4o-mini"),
   LOG_LEVEL: z
     .enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"])
     .default("info"),
@@ -126,6 +128,10 @@ export interface Config {
   alerts: {
     quotaWarningThreshold: number;
   };
+  ai: {
+    apiKey: string;
+    model: string;
+  };
   logging: {
     level: string;
     pretty: boolean;
@@ -182,6 +188,10 @@ const config: Config = {
   },
   alerts: {
     quotaWarningThreshold: env.QUOTA_WARNING_THRESHOLD,
+  },
+  ai: {
+    apiKey: env.AI_API_KEY,
+    model: env.AI_MODEL,
   },
   logging: {
     level: env.LOG_LEVEL,

@@ -31,7 +31,7 @@ export type TenantWhereInput = {
   [K in keyof Tenant]?: Tenant[K] | QueryOp<Tenant[K]>;
 };
 
-export default class ApiKeyRepository {
+export default class TenantRepository {
   private db: ReturnType<typeof db>;
   constructor(dbClient: ReturnType<typeof db>) {
     this.db = dbClient;

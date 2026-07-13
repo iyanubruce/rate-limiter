@@ -10,6 +10,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { users } from "./user";
+import { tenants } from "./tenants";
 
 export const alertChannels = pgEnum("alert_channel", [
   "email",
@@ -18,14 +19,24 @@ export const alertChannels = pgEnum("alert_channel", [
   "discord",
 ]);
 
+export const alertType = pgEnum("alert_type", [
+  "quota_warning",
+  "rate_limit_exceeded",
+  "api_key_expiring",
+  "error_rate_spike",
+]);
+
 export const alerts = pgTable("alerts", {
   id: serial("id").primaryKey(),
+  tenantId: varchar("tenant_id", { length: 32 })
+    .notNull()
+    .references(() => tenants.id),
   userId: integer("user_id")
     .notNull()
     .references(() => users.id),
   name: varchar("name", { length: 255 }).notNull(),
-  channel: varchar("channel", { length: 50 }).notNull(),
-  type: varchar("type", { length: 100 }).notNull(),
+  channel: alertChannels("channel").notNull(),
+  type: alertType("type").notNull(),
   threshold: integer("threshold").notNull(),
   isActive: boolean("is_active").notNull().default(true),
   config: jsonb("config"),

@@ -1,6 +1,5 @@
-export { users } from "./user";
-export { apiKeys } from "./api-keys";
-// export { rateLimitRules } from "./rate-limit-rules";
+export { users, usersRelations } from "./user";
+export { apiKeys, apiKeysRelations } from "./api-keys";
 export { rateLimitEvents } from "./rate-limit-events";
-export { tenants } from "./tenants";
+export { tenants, tenantsRelations } from "./tenants";
 export { alerts, webhooks } from "./alerts";

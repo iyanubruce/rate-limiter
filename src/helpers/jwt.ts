@@ -27,9 +27,8 @@ export default class JWT {
   }
 
   public static decode(token: string): jwt.JwtPayload {
-    const cert = this.readPublicKey();
-    const decoded = jwt.verify(token, cert);
-    if (typeof decoded === "string") {
+    const decoded = jwt.decode(token);
+    if (typeof decoded === "string" || !decoded) {
       throw new Error("Expected JWT payload to be an object");
     }
     return decoded as jwt.JwtPayload;

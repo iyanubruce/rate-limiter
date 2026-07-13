@@ -1,6 +1,7 @@
 import type {
   ListKeysInterface,
   CreateKeyInput,
+  UpdateKeyInput,
 } from "../../interfaces/api-key";
 import * as apiKeyController from "../controllers/api-key";
 import type { FastifyReply, FastifyRequest } from "fastify";
@@ -54,16 +55,7 @@ export const updateKey = async (
       Number(keyId),
       userId,
       tenantId,
-      request.body as {
-        name?: string;
-        description?: string;
-        scopes?: string[];
-        rateLimitOverride?: {
-          strategy?: "token-bucket" | "sliding-window" | "fixed-window";
-          requestsPerSecond?: number;
-          burstSize?: number;
-        } | null;
-      },
+      request.body as UpdateKeyInput,
     );
     return reply.code(200).send(data);
   } catch (error) {
@@ -92,7 +84,7 @@ export const deleteKey = async (
     await apiKeyController.deleteKey(Number(keyId), userId!);
     return reply.code(200).send({
       success: true,
-      message: "API key revoked successfully",
+      message: "API key deleted successfully",
     });
   } catch (error) {
     throw error;

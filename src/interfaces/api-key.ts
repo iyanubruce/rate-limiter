@@ -25,3 +25,10 @@ export interface CreateKeyInput {
   expiresAt?: string;
   metadata?: any;
 }
+
+export interface UpdateKeyInput {
+  name?: string;
+  description?: string;
+  scopes?: string[];
+  rateLimitOverride?: Partial<RateLimitOverride> | null;
+}

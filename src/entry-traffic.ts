@@ -1,25 +1,13 @@
-import { Redis } from "ioredis";
+import { getSharedRedis } from "./services/redis";
 import { createTrafficServer } from "./trafficServer";
 import logger from "./utils/logger";
-import config from "./config/env";
-import { trafficDb as db } from "./config/traffic-database"; // Adjust path to your Drizzle DB instance
+import { trafficDb as db } from "./config/traffic-database";
 import { sql } from "drizzle-orm";
 
 async function startTrafficServer() {
   try {
-    const redisClient = new Redis(config.redis);
-
-    await new Promise<void>((resolve, reject) => {
-      redisClient.on("ready", () => {
-        logger.info("✓ Redis connected");
-        resolve();
-      });
-
-      redisClient.on("error", (err) => {
-        logger.error("Redis connection error:", err);
-        reject(err);
-      });
-    });
+    const redisClient = getSharedRedis();
+    await redisClient.connect();
 
     await db.execute(sql`SELECT 1`);
     logger.info("✓ Database connected successfully");

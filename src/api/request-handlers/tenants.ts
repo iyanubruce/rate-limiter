@@ -9,11 +9,8 @@ export const upgradePlan = async (
   try {
     const tenantId = request.user?.tenantId;
     const { plan } = request.body as { plan: Plan };
-    const result = await tenantsController.upgradePlan(
-      tenantId!,
-      plan,
-    );
-    return reply.code(200).send(result);
+    const result = await tenantsController.upgradePlan(tenantId!, plan);
+    reply.code(200).send({ sessionId: result.sessionId, url: result.url });
   } catch (error) {
     throw error;
   }

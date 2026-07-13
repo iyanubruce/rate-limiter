@@ -56,8 +56,6 @@ The Admin API uses JWT bearer tokens for authentication.
 | POST | `/auth/register` | Create account. Body: `{ email, password, firstName, lastName, organizationName, organizationEmail }` |
 | POST | `/auth/login` | Login. Body: `{ email, password }`. Returns `{ token, user }` |
 | POST | `/auth/refresh` | Refresh JWT. Body: `{ refreshToken }` |
-| POST | `/auth/google` | Google OAuth |
-
 Include the token in all authenticated requests:
 
 ```

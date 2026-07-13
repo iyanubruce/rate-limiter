@@ -38,12 +38,14 @@ export const register = async (
       transaction,
     );
 
+    if (!tenant) throw new BadRequestError("Failed to create tenant");
+
     const user = await userRepository.createUser(
       {
         email,
         password: hashedPassword,
         firstName,
-        tenantId: tenant!.id,
+        tenantId: tenant.id,
         lastName,
       },
       transaction,
@@ -51,13 +53,15 @@ export const register = async (
     return { tenant, user };
   });
 
-  const { password: userPassword, ...safeUser } = user!;
+  if (!user) throw new BadRequestError("Failed to create user");
+
+  const { password: userPassword, ...safeUser } = user;
 
   const token = JWT.encode({
-    id: user?.id,
-    tenantId: tenant!.id,
-    email: user?.email,
-    role: user?.role,
+    id: user.id,
+    tenantId: tenant.id,
+    email: user.email,
+    role: user.role,
   });
   return { user: safeUser, token };
 };
@@ -80,17 +84,25 @@ export const login = async (email: string, password: string) => {
   return { user: safeUser, token };
 };
 
-export const refresh = async (refreshToken: string) => {
-  const decoded = JWT.verify(refreshToken);
+export const refresh = async (token: string) => {
+  let decoded: { id: number; tenantId?: string; email?: string; role?: string };
+  try {
+    decoded = JWT.decode(token) as any;
+  } catch {
+    throw new BadRequestError("Invalid token");
+  }
+
   const user = await userRepository.findById(decoded.id);
 
   if (!user) {
-    throw new BadRequestError("Invalid refresh token");
+    throw new BadRequestError("Invalid token");
   }
-  const token = JWT.encode({
+
+  const newToken = JWT.encode({
     id: user.id,
-    email: user.email,
-    role: user.role,
+    email: user.email ?? decoded.email,
+    tenantId: user.tenantId ?? decoded.tenantId,
+    role: user.role ?? decoded.role,
   });
-  return { token, expiresIn: config.jwt.expiresIn };
+  return { token: newToken, expiresIn: config.jwt.expiresIn };
 };

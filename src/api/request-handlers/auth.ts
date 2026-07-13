@@ -56,10 +56,10 @@ export const refreshHandler = async (
   reply: FastifyReply,
 ) => {
   try {
-    const { refreshToken } = request.body as {
-      refreshToken: string;
+    const { token } = request.body as {
+      token: string;
     };
-    const result = await authController.refresh(refreshToken);
+    const result = await authController.refresh(token);
     return reply.code(200).send(result);
   } catch (error) {
     throw error;

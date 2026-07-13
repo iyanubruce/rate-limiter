@@ -1,4 +1,11 @@
-import { eq, count as countHelper, isNull, and } from "drizzle-orm";
+import {
+  eq,
+  count as countHelper,
+  isNull,
+  and,
+  getTableColumns,
+  type SQL,
+} from "drizzle-orm";
 import { db } from "../../config/database";
 import { apiKeys, type ApiKeyInsert, type ApiKey } from "../models/api-keys";
 import type { ListKeysWhereClause } from "../../interfaces/api-key";
@@ -6,6 +13,10 @@ import type { ListKeysWhereClause } from "../../interfaces/api-key";
 type Transaction = Parameters<
   Parameters<ReturnType<typeof db>["transaction"]>[0]
 >[0];
+
+export type ApiKeyInclude = { user?: true | object; tenant?: true | object };
+
+const apiKeyColumns = getTableColumns(apiKeys);
 
 export default class ApiKeyRepository {
   private db: ReturnType<typeof db>;
@@ -21,21 +32,36 @@ export default class ApiKeyRepository {
     return newApiKey ?? null;
   }
 
-  async findApiKey(userId: number, name: string, transaction?: Transaction) {
+  async findApiKey(options: {
+    data: Partial<ApiKey>;
+    include?: ApiKeyInclude;
+    transaction?: Transaction;
+  }) {
+    const { data, include, transaction } = options;
     const client = transaction || this.db;
-    return await client.query.apiKeys.findFirst({
-      where: and(
-        eq(apiKeys.userId, userId),
-        eq(apiKeys.name, name),
-        isNull(apiKeys.revokedAt),
-      ),
+    const conditions: SQL[] = [isNull(apiKeys.revokedAt)];
+    for (const [key, value] of Object.entries(data)) {
+      if (value !== undefined) {
+        const column = apiKeyColumns[key as keyof typeof apiKeyColumns];
+        if (column) conditions.push(eq(column, value));
+      }
+    }
+    return client.query.apiKeys.findFirst({
+      where: and(...conditions),
+      ...(include && { with: include }),
     });
   }
 
-  async findApiKeyByKeyHash(keyHash: string, transaction?: Transaction) {
+  async findApiKeyByKeyHash(options: {
+    data: { keyHash: string };
+    include?: ApiKeyInclude;
+    transaction?: Transaction;
+  }) {
+    const { data, include, transaction } = options;
     const client = transaction || this.db;
-    return await client.query.apiKeys.findFirst({
-      where: and(eq(apiKeys.keyHash, keyHash), isNull(apiKeys.revokedAt)),
+    return client.query.apiKeys.findFirst({
+      where: and(eq(apiKeys.keyHash, data.keyHash), isNull(apiKeys.revokedAt)),
+      ...(include && { with: include }),
     });
   }
   async listAndCountKeys(

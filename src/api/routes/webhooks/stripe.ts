@@ -1,10 +1,10 @@
 import type { FastifyPluginAsync } from "fastify";
-import { confirmPlanUpgrade, type Plan } from "../controllers/tenants";
-import { constructWebhookEvent } from "../../services/stripe";
-import { BadRequestError, InternalServerError } from "../../error";
-import logger from "../../utils/logger";
+import { confirmPlanUpgrade, type Plan } from "../../controllers/tenants";
+import { constructWebhookEvent } from "../../../services/stripe";
+import { BadRequestError, InternalServerError } from "../../../error";
+import logger from "../../../utils/logger";
 
-const webhookRoutes: FastifyPluginAsync = async (fastify) => {
+const stripeWebhookRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.addHook("preParsing", (request, _reply, payload, done) => {
     const chunks: Buffer[] = [];
     payload.on("data", (chunk: Buffer) => chunks.push(chunk));
@@ -15,7 +15,7 @@ const webhookRoutes: FastifyPluginAsync = async (fastify) => {
     payload.on("error", (err) => done(err));
   });
 
-  fastify.post("/stripe", async (request, reply) => {
+  fastify.post("/", async (request, reply) => {
     try {
       const sig = request.headers["stripe-signature"] as string;
       if (!sig) {
@@ -52,4 +52,4 @@ const webhookRoutes: FastifyPluginAsync = async (fastify) => {
   });
 };
 
-export default webhookRoutes;
+export default stripeWebhookRoutes;

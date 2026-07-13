@@ -6,6 +6,9 @@ import apiKeyRoutes from "./api-keys";
 import analyticsRoutes from "./analytics";
 import tenantsRoutes from "./tenants";
 import webhookRoutes from "./webhooks";
+import stripeWebhookRoutes from "./webhooks/stripe";
+import alertsRoutes from "./alerts";
+import aiAnalyticsRoutes from "./ai-analytics";
 
 export async function registerRoutes(app: FastifyInstance) {
   app.get(
@@ -28,7 +31,7 @@ export async function registerRoutes(app: FastifyInstance) {
         },
       },
     },
-    async (request, reply) => {
+    async (request) => {
       return {
         name: "RateLimitr",
         version: "1.0.0",
@@ -45,5 +48,8 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(analyticsRoutes, { prefix: "/analytics" });
   await app.register(tenantsRoutes, { prefix: "/tenants" });
   await app.register(webhookRoutes, { prefix: "/webhooks" });
+  await app.register(stripeWebhookRoutes, { prefix: "/webhooks/stripe" });
+  await app.register(alertsRoutes, { prefix: "/" });
+  await app.register(aiAnalyticsRoutes, { prefix: "/ai/analytics" });
   logger.info("✓ Routes registered");
 }

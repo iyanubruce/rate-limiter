@@ -29,6 +29,25 @@ async function startServer() {
     // Create and start server
     server = await createServer(redisClient, dbClient);
 
+    server?.on?.("error", (error: NodeJS.ErrnoException) => {
+      if (error.syscall !== "listen") throw error;
+
+      const bind = typeof PORT === "string" ? `Pipe ${PORT}` : `Port ${PORT}`;
+
+      switch (error.code) {
+        case "EACCES":
+          logger.error(`${bind} requires elevated privileges`);
+          process.exit(1);
+          break;
+        case "EADDRINUSE":
+          logger.error(`${bind} is already in use`);
+          process.exit(1);
+          break;
+        default:
+          throw error;
+      }
+    });
+
     logger.info(`🚀 RateLimitr running on http://${HOST}:${PORT}`);
     logger.info(`📡 Environment: ${config.server.env}`);
     logger.info(`📚 API Docs: http://${HOST}:${PORT}/docs`);
@@ -40,26 +59,6 @@ async function startServer() {
     process.exit(1);
   }
 }
-
-// Error handlers
-server?.on?.("error", (error: NodeJS.ErrnoException) => {
-  if (error.syscall !== "listen") throw error;
-
-  const bind = typeof PORT === "string" ? `Pipe ${PORT}` : `Port ${PORT}`;
-
-  switch (error.code) {
-    case "EACCES":
-      logger.error(`${bind} requires elevated privileges`);
-      process.exit(1);
-      break;
-    case "EADDRINUSE":
-      logger.error(`${bind} is already in use`);
-      process.exit(1);
-      break;
-    default:
-      throw error;
-  }
-});
 
 // Graceful shutdown
 process.on("SIGTERM", async () => {

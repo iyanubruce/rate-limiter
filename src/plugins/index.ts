@@ -6,6 +6,7 @@ import swagger from "@fastify/swagger";
 import swaggerUi from "@fastify/swagger-ui";
 import compress from "@fastify/compress";
 import config from "../config/env";
+import { minutes } from "../helpers/rate-limit";
 import fp from "fastify-plugin";
 import logger from "../utils/logger";
 import { errorSchemas } from "../api/validations/error";
@@ -39,7 +40,7 @@ export async function registerPlugins(app: FastifyInstance) {
   // Rate limiting (meta!)
   await app.register(rateLimit, {
     max: 100,
-    timeWindow: "1 minute",
+    timeWindow: minutes(1),
     redis: app.redis.client,
     nameSpace: "fastify-rate-limit:",
     skipOnError: true,

@@ -48,7 +48,9 @@ export async function setupTimescaleDB(
       "✓ TimescaleDB setup completed successfully with multi-tenant segmenting",
     );
   } catch (e: any) {
-    logger.error(`❌ Failed to setup TimescaleDB: ${e.message}`);
+    logger.error(
+      `❌ Failed to setup TimescaleDB: ${e.message}${e.code ? ` (code: ${e.code})` : ""}${e.detail ? ` detail: ${e.detail}` : ""}${e.hint ? ` hint: ${e.hint}` : ""}`,
+    );
     throw e;
   }
 }

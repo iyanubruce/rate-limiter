@@ -44,6 +44,7 @@ export const loginHandler = async (
       email: string;
       password: string;
     };
+    console.log("Guest user auth", email, password);
     const result = await authController.login(email, password);
     return reply.code(200).send({ user: result.user, token: result.token });
   } catch (error) {

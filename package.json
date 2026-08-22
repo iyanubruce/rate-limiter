@@ -5,7 +5,7 @@
   "private": true,
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "start:admin": "bun run db:migrate && bun run src/index.ts",
+    "start:admin": "bun run db:migrate && bun run db:seed && bun run src/index.ts",
     "dev:admin": "bun run --watch --no-clear src/index.ts",
     "start:traffic": "bun run src/entry-traffic.ts",
     "dev:traffic": "bun --no-clear-screen --watch src/entry-traffic.ts",

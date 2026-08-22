@@ -11,15 +11,185 @@ import { apiKeys } from "../database/models/api-keys";
 import { alerts, webhooks } from "../database/models/alerts";
 import { rateLimitEvents } from "../database/models/rate-limit-events";
 
-const SEED_EMAIL = "seed@test.com";
-const SEED_PASSWORD = "password123";
-const SEED_TENANT_EMAIL = "seed-org@test.com";
-const SEED_TENANT_NAME = "Seed Organization";
-const SEED_FIRST_NAME = "Seed";
+const SEED_EMAIL = "guest@example.com";
+const SEED_PASSWORD = "Password123@";
+const SEED_TENANT_EMAIL = "guest-org@test.com";
+const SEED_TENANT_NAME = "Guest Organization";
+const SEED_FIRST_NAME = "Guest";
 const SEED_LAST_NAME = "User";
 const WEBHOOK_URL = "https://webhook.site/example";
 
-async function seed() {
+async function seedTenant(dbc: ReturnType<typeof db>) {
+  const existing = await dbc.query.tenants.findFirst({
+    where: eq(tenants.email, SEED_TENANT_EMAIL),
+  });
+  if (existing) return existing;
+
+  const rows = await dbc
+    .insert(tenants)
+    .values({
+      name: SEED_TENANT_NAME,
+      email: SEED_TENANT_EMAIL,
+      plan: "pro",
+      quota: 5000,
+      strategy: "token_bucket",
+      windowSeconds: 60,
+    })
+    .returning();
+  return rows[0]!;
+}
+
+async function seedUser(dbc: ReturnType<typeof db>, tenantId: string) {
+  const existing = await dbc.query.users.findFirst({
+    where: eq(users.email, SEED_EMAIL),
+  });
+  if (existing) return existing;
+
+  const passwordHash = await bcrypt.hash(SEED_PASSWORD, 10);
+  const rows = await dbc
+    .insert(users)
+    .values({
+      email: SEED_EMAIL,
+      password: passwordHash,
+      firstName: SEED_FIRST_NAME,
+      lastName: SEED_LAST_NAME,
+      tenantId,
+      role: "admin",
+    })
+    .returning();
+  return rows[0]!;
+}
+
+async function seedApiKey(
+  dbc: ReturnType<typeof db>,
+  userId: number,
+  tenantId: string,
+) {
+  const keyHash = createHash("sha256").update("sk_seed_test_key").digest("hex");
+  const existing = await dbc.query.apiKeys.findFirst({
+    where: eq(apiKeys.keyHash, keyHash),
+  });
+  if (existing) return existing;
+
+  await dbc.insert(apiKeys).values({
+    keyHash,
+    keyPrefix: "sk_seed_",
+    userId,
+    tenantId,
+    name: "Seed Test Key",
+    description: "Auto-generated seed key for testing",
+    scopes: ["read", "write", "admin"],
+  });
+  return dbc.query.apiKeys.findFirst({ where: eq(apiKeys.keyHash, keyHash) });
+}
+
+async function seedWebhook(dbc: ReturnType<typeof db>, userId: number) {
+  const existing = await dbc.query.webhooks.findFirst({
+    where: eq(webhooks.url, WEBHOOK_URL),
+  });
+  if (existing) return existing;
+
+  await dbc.insert(webhooks).values({
+    userId,
+    url: WEBHOOK_URL,
+    events: ["quota_warning", "rate_limit_exceeded"],
+    isActive: true,
+  });
+}
+
+async function seedAlert(
+  dbc: ReturnType<typeof db>,
+  tenantId: string,
+  userId: number,
+) {
+  const existing = await dbc.query.alerts.findFirst({
+    where: eq(alerts.name, "Seed Quota Warning"),
+  });
+  if (existing) return existing;
+
+  await dbc.insert(alerts).values({
+    tenantId,
+    userId,
+    name: "Seed Quota Warning",
+    channel: "webhook",
+    type: "quota_warning",
+    threshold: 80,
+    isActive: true,
+  });
+}
+
+async function seedEvents(
+  dbc: ReturnType<typeof db>,
+  tenantId: string,
+  apiKeyId: number,
+) {
+  const countResult = await dbc
+    .select({ count: sql<number>`count(*)` })
+    .from(rateLimitEvents)
+    .where(eq(rateLimitEvents.tenantId, tenantId));
+
+  if (Number(countResult[0]?.count ?? 0) > 0) return;
+
+  await dbc.insert(rateLimitEvents).values([
+    {
+      tenantId,
+      apiKeyId,
+      ipAddress: "192.168.1.1",
+      endpoint: "/api/v1/data",
+      method: "GET",
+      statusCode: 200,
+      requestDurationMs: 42,
+      isBlocked: false,
+      remainingQuota: 4999,
+    },
+    {
+      tenantId,
+      apiKeyId,
+      ipAddress: "192.168.1.1",
+      endpoint: "/api/v1/data",
+      method: "POST",
+      statusCode: 200,
+      requestDurationMs: 87,
+      isBlocked: false,
+      remainingQuota: 4998,
+    },
+    {
+      tenantId,
+      apiKeyId,
+      ipAddress: "10.0.0.5",
+      endpoint: "/api/v1/auth",
+      method: "POST",
+      statusCode: 429,
+      requestDurationMs: 12,
+      isBlocked: true,
+      remainingQuota: 0,
+    },
+    {
+      tenantId,
+      apiKeyId,
+      ipAddress: "192.168.1.1",
+      endpoint: "/api/v1/data",
+      method: "GET",
+      statusCode: 200,
+      requestDurationMs: 31,
+      isBlocked: false,
+      remainingQuota: 4997,
+    },
+    {
+      tenantId,
+      apiKeyId,
+      ipAddress: "203.0.113.1",
+      endpoint: "/api/v1/admin",
+      method: "GET",
+      statusCode: 403,
+      requestDurationMs: 5,
+      isBlocked: true,
+      remainingQuota: 4996,
+    },
+  ]);
+}
+
+export async function seed() {
   const shouldClean = process.argv.includes("--clean");
 
   if (shouldClean) {
@@ -36,51 +206,12 @@ async function seed() {
 
   const dbc = db();
 
-  const existingTenant = await dbc.query.tenants.findFirst({
-    where: eq(tenants.email, SEED_TENANT_EMAIL),
-  });
-
-  let tenant = existingTenant;
-  if (!tenant) {
-    const rows = await dbc
-      .insert(tenants)
-      .values({
-        name: SEED_TENANT_NAME,
-        email: SEED_TENANT_EMAIL,
-        plan: "pro",
-        quota: 5000,
-        strategy: "token_bucket",
-        windowSeconds: 60,
-      })
-      .returning();
-    tenant = rows[0]!;
-  }
-
-  if (!tenant) {
-    logger.error("Failed to create tenant");
-    process.exit(1);
-  }
-
-  const existingUser = await dbc.query.users.findFirst({
-    where: eq(users.email, SEED_EMAIL),
-  });
-
-  let user = existingUser;
-  if (!user) {
-    const passwordHash = await bcrypt.hash(SEED_PASSWORD, 10);
-    const rows = await dbc
-      .insert(users)
-      .values({
-        email: SEED_EMAIL,
-        password: passwordHash,
-        firstName: SEED_FIRST_NAME,
-        lastName: SEED_LAST_NAME,
-        tenantId: tenant.id,
-        role: "admin",
-      })
-      .returning();
-    user = rows[0]!;
-  }
+  const tenant = await seedTenant(dbc);
+  const user = await seedUser(dbc, tenant.id);
+  const apiKey = await seedApiKey(dbc, user.id, tenant.id);
+  await seedWebhook(dbc, user.id);
+  await seedAlert(dbc, tenant.id, user.id);
+  if (apiKey) await seedEvents(dbc, tenant.id, apiKey.id);
 
   const token = JWT.encode(
     {
@@ -91,125 +222,6 @@ async function seed() {
     },
     86400,
   );
-
-  const keyHash = createHash("sha256").update("sk_seed_test_key").digest("hex");
-  const existingKey = await dbc.query.apiKeys.findFirst({
-    where: eq(apiKeys.keyHash, keyHash),
-  });
-  if (!existingKey) {
-    await dbc.insert(apiKeys).values({
-      keyHash,
-      keyPrefix: "sk_seed_",
-      userId: user.id,
-      tenantId: tenant.id,
-      name: "Seed Test Key",
-      description: "Auto-generated seed key for testing",
-      scopes: ["read", "write", "admin"],
-    });
-  }
-
-  const existingWebhook = await dbc.query.webhooks.findFirst({
-    where: eq(webhooks.url, WEBHOOK_URL),
-  });
-  if (!existingWebhook) {
-    await dbc.insert(webhooks).values({
-      userId: user.id,
-      url: WEBHOOK_URL,
-      events: ["quota_warning", "rate_limit_exceeded"],
-      isActive: true,
-    });
-  }
-
-  const existingAlert = await dbc.query.alerts.findFirst({
-    where: eq(alerts.name, "Seed Quota Warning"),
-  });
-  if (!existingAlert) {
-    await dbc.insert(alerts).values({
-      tenantId: tenant.id,
-      userId: user.id,
-      name: "Seed Quota Warning",
-      channel: "webhook",
-      type: "quota_warning",
-      threshold: 80,
-      isActive: true,
-    });
-  }
-
-  const countResult = await dbc
-    .select({ count: sql<number>`count(*)` })
-    .from(rateLimitEvents)
-    .where(eq(rateLimitEvents.tenantId, tenant.id));
-
-  const existingEventCount = Number(countResult[0]?.count ?? 0);
-  if (existingEventCount === 0) {
-    const apiKey = await dbc.query.apiKeys.findFirst({
-      where: eq(apiKeys.keyHash, keyHash),
-    });
-
-    if (apiKey) {
-      await dbc.insert(rateLimitEvents).values([
-        {
-          tenantId: tenant.id,
-          apiKeyId: apiKey.id,
-          ipAddress: "192.168.1.1",
-          endpoint: "/api/v1/data",
-          method: "GET",
-          statusCode: 200,
-          requestDurationMs: 42,
-          isBlocked: false,
-          remainingQuota: 4999,
-        },
-        {
-          tenantId: tenant.id,
-          apiKeyId: apiKey.id,
-          ipAddress: "192.168.1.1",
-          endpoint: "/api/v1/data",
-          method: "POST",
-          statusCode: 200,
-          requestDurationMs: 87,
-          isBlocked: false,
-          remainingQuota: 4998,
-        },
-        {
-          tenantId: tenant.id,
-          apiKeyId: apiKey.id,
-          ipAddress: "10.0.0.5",
-          endpoint: "/api/v1/auth",
-          method: "POST",
-          statusCode: 429,
-          requestDurationMs: 12,
-          isBlocked: true,
-          remainingQuota: 0,
-        },
-        {
-          tenantId: tenant.id,
-          apiKeyId: apiKey.id,
-          ipAddress: "192.168.1.1",
-          endpoint: "/api/v1/data",
-          method: "GET",
-          statusCode: 200,
-          requestDurationMs: 31,
-          isBlocked: false,
-          remainingQuota: 4997,
-        },
-        {
-          tenantId: tenant.id,
-          apiKeyId: apiKey.id,
-          ipAddress: "203.0.113.1",
-          endpoint: "/api/v1/admin",
-          method: "GET",
-          statusCode: 403,
-          requestDurationMs: 5,
-          isBlocked: true,
-          remainingQuota: 4996,
-        },
-      ]);
-    }
-  }
-
-  const apiKey = await dbc.query.apiKeys.findFirst({
-    where: eq(apiKeys.keyHash, keyHash),
-  });
 
   const webhookList = await dbc.query.webhooks.findMany({
     where: eq(webhooks.userId, user.id),
